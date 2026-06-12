@@ -1,0 +1,44 @@
+# Python 캐시
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# 가상환경
+venv/
+.venv/
+env/
+ENV/
+
+# 설치 관련
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+*.code-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 환경변수 / 설정 파일
+.env
+*.env
+
+# 엑셀/데이터 원본 (민감 데이터 제외할 경우)
+# *.xlsx
+# *.csv
+
+# 로그
+*.log
+
+# 기타 플랜 작업
+\plan
