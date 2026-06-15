@@ -128,7 +128,7 @@ def load_mapping(path: Path) -> pd.DataFrame:
         encoding = "utf-8-sig"
     )
 
-    df["전기COA"] = normalize_code_column(df["전기COA"])
+    df["전기COA"] = df["전기COA"] = df["전기COA"].fillna("").astype(str).str.strip()
     df["기존COA"] = normalize_code_column(df["기존COA"])
     return df
 
@@ -255,12 +255,17 @@ def enrich_cc(coa_df: pd.DataFrame, cc_df: pd.DataFrame) -> pd.DataFrame:
 
     if m_ccs.empty:
         return coa_df
+
+    # "" marks filler rows (CC in master but absent from the amount sheet).
+    # It must be a valid category before constructing the filler Categorical.
+    coa_dtype = coa_df["COA"].dtype
+    if "" not in coa_dtype.categories:
+        coa_dtype = CategoricalDtype(categories=[""] + list(coa_dtype.categories))
+        coa_df = coa_df.assign(COA=coa_df["COA"].astype(coa_dtype))
+
     filler = pd.DataFrame({
-        "COA": pd.Categorical([""] * len(m_ccs),
-                            dtype=coa_df["COA"].dtype),
-        "Cost Center": pd.Categorical(m_ccs.values,
-                                    dtype=coa_df["Cost Center"].dtype),
+        "COA": pd.Categorical([""] * len(m_ccs), dtype=coa_dtype),
+        "Cost Center": pd.Categorical(m_ccs.values, dtype=coa_df["Cost Center"].dtype),
         "Amounts": 0.0,
     })
-
-    return pd.concat([coa_df, filler], ignore_index = True)
+    return pd.concat([coa_df, filler], ignore_index=True)
