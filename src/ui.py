@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from pathlib import Path
@@ -13,9 +14,41 @@ _FIELDS = [
     ("output_dir", "결과 저장 폴더", "dir"),
 ]
 
+_CONFIG_PATH = Path.home() / ".cost-allocation" / "last_paths.json"
+
+
+def _load_last_paths() -> dict[str, str]:
+    """Load previously saved paths from the config file.
+
+    Returns an empty dict if the file does not exist, is not valid JSON,
+    or cannot be read. Paths that no longer exist on disk are excluded.
+    """
+    try:
+        data = json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
+        return {k: v for k, v in data.items() if Path(v).exists()}
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {}
+
+
+def _save_last_paths(paths: dict[str, str]) -> None:
+    """Persist selected paths to the config file.
+
+    Silently ignores write errors (e.g. permission denied).
+    """
+    try:
+        _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _CONFIG_PATH.write_text(
+            json.dumps(paths, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
+
 
 def prompt_file_paths() -> dict[str, Path] | None:
     """Open a tkinter window to collect four input file paths and an output directory.
+
+    Previously selected paths are pre-filled if they still exist on disk.
 
     Returns
     -------
@@ -32,8 +65,9 @@ def prompt_file_paths() -> dict[str, Path] | None:
     root.title("공통비 배부")
     root.resizable(False, False)
 
+    last = _load_last_paths()
     path_vars: dict[str, tk.StringVar] = {
-        key: tk.StringVar() for key, *_ in _FIELDS
+        key: tk.StringVar(value=last.get(key, "")) for key, *_ in _FIELDS
     }
     result: list[dict[str, Path] | None] = [None]
 
@@ -67,7 +101,9 @@ def prompt_file_paths() -> dict[str, Path] | None:
         ).grid(row=row, column=2, padx=(4, 12))
 
     def _on_run() -> None:
-        result[0] = {key: Path(path_vars[key].get()) for key, *_ in _FIELDS}
+        selected = {key: path_vars[key].get() for key, *_ in _FIELDS}
+        _save_last_paths(selected)
+        result[0] = {key: Path(v) for key, v in selected.items()}
         root.destroy()
 
     run_btn = tk.Button(
@@ -76,6 +112,9 @@ def prompt_file_paths() -> dict[str, Path] | None:
     run_btn.grid(row=len(_FIELDS), column=0, columnspan=3, pady=(8, 12))
 
     root.protocol("WM_DELETE_WINDOW", root.destroy)
+
+    _update_run()
+
     root.mainloop()
 
     return result[0]
@@ -105,7 +144,7 @@ def show_completion(
         Error description. Shown for "failure".
     """
     root = tk.Tk()
-    root.withdraw() 
+    root.withdraw()
 
     if status == "success":
         messagebox.showinfo(
