@@ -45,6 +45,17 @@ def _save_last_paths(paths: dict[str, str]) -> None:
         pass
 
 
+def _display_name(path: str) -> str:
+    """Return only the file or folder name for on-screen display.
+
+    The Entry fields show this short name instead of the full path so the
+    absolute path is not exposed on screen. The full path is still kept
+    internally for reading inputs and saving the result. Returns "" for an
+    empty path.
+    """
+    return Path(path).name if path else ""
+
+
 def prompt_file_paths() -> dict[str, Path] | None:
     """Open a tkinter window to collect four input file paths and an output directory.
 
@@ -66,8 +77,11 @@ def prompt_file_paths() -> dict[str, Path] | None:
     root.resizable(False, False)
 
     last = _load_last_paths()
+    # Full absolute paths are kept here; the Entry fields show only the file
+    # or folder name so the full path is never exposed on screen.
+    selected: dict[str, str] = {key: last.get(key, "") for key, *_ in _FIELDS}
     path_vars: dict[str, tk.StringVar] = {
-        key: tk.StringVar(value=last.get(key, "")) for key, *_ in _FIELDS
+        key: tk.StringVar(value=_display_name(selected[key])) for key, *_ in _FIELDS
     }
     result: list[dict[str, Path] | None] = [None]
 
@@ -79,10 +93,11 @@ def prompt_file_paths() -> dict[str, Path] | None:
         else:
             path = filedialog.askdirectory()
         if path:
-            path_vars[key].set(path)
+            selected[key] = path
+            path_vars[key].set(_display_name(path))
 
     def _update_run(*_) -> None:
-        all_set = all(v.get() for v in path_vars.values())
+        all_set = all(selected.values())
         run_btn.config(state=tk.NORMAL if all_set else tk.DISABLED)
 
     for var in path_vars.values():
@@ -101,7 +116,6 @@ def prompt_file_paths() -> dict[str, Path] | None:
         ).grid(row=row, column=2, padx=(4, 12))
 
     def _on_run() -> None:
-        selected = {key: path_vars[key].get() for key, *_ in _FIELDS}
         _save_last_paths(selected)
         result[0] = {key: Path(v) for key, v in selected.items()}
         root.destroy()
