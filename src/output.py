@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 
 
-# ── Steps 10–11: Build final result with full grid ─────────────────────────
+# Steps 10–11: Build final result with full grid 
 
 
 def build_result(
