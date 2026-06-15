@@ -100,7 +100,8 @@ def run_allocation_loop(
         )
 
     if unbalanced:
-        warnings.warn("Sender CC balances did not reach 0 after allocation")
+        warnings.warn("배부 후 sender CC 잔액이 0이 되지 않았습니다")
+
 
     return pivot, delta_by_cycle
 
@@ -221,8 +222,9 @@ def decompose_to_original_coa(
     total = 1e-6 * max(abs(received_total), 1.0)
     if abs(alloc_total - received_total) > total:
         warnings.warn(
-            f"Decomposition conservation check failed: "
-            f"received = {received_total: .4f}, allocated = {alloc_total: .4f}"
+            f"분해 총액 보존 검증 실패: "
+            f"수령액 = {received_total: .4f}, 배분액 = {alloc_total: .4f}"
         )
+
 
     return result
