@@ -1,17 +1,17 @@
-# Python 캐시
+# Python cache
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
 .Python
 
-# 가상환경
+# Virtual environments
 venv/
 .venv/
 env/
 ENV/
 
-# 설치 관련
+# Build / packaging
 *.egg-info/
 dist/
 build/
@@ -29,16 +29,22 @@ build/
 .DS_Store
 Thumbs.db
 
-# 환경변수 / 설정 파일
+# Environment variables / config
 .env
 *.env
 
-# 엑셀/데이터 원본 (민감 데이터 제외할 경우)
-# *.xlsx
-# *.csv
+# Block real data (never commit)
+data/
+input/
+output/
+*.xlsx
+*.csv
 
-# 로그
+# Allow only sample/example data
+!sample_data/*.csv
+
+# Logs
 *.log
 
-# 기타 플랜 작업
-\plan
+# Plan folder
+plan/
