@@ -48,3 +48,6 @@ output/
 
 # Plan folder
 plan/
+
+# PyInstaller
+*.spec
