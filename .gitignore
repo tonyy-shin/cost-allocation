@@ -49,5 +49,8 @@ output/
 # Plan folder
 plan/
 
+# GUIDE folder
+사용설명서/
+
 # PyInstaller
 *.spec
