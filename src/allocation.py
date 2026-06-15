@@ -129,7 +129,7 @@ def aggregate_received_by_cycle(
         result[cycle_num] = (
             df.groupby(["전기COA", "Receiver CC"], observed = True)
             ["Amounts"].sum()
-            .reindex()
+            .reset_index()
         )
 
     return result
@@ -160,7 +160,7 @@ def decompose_to_original_coa(
         n equals the number of keys in received_by_cycle.
     """
     ec_koa = (
-        df_ratio.groupby(["전기COA", "기존COA"], observed = "True")
+        df_ratio.groupby(["전기COA", "기존COA"], observed = True)
         ["Amounts"].sum()
         .reset_index(name = "koa_total")
     )
@@ -215,7 +215,7 @@ def decompose_to_original_coa(
         df["Amounts"].sum() for df in received_by_cycle.values() if not df.empty
     )
     alloc_total = result[alloc_cols].values.sum()
-    tol = 1e-6 * max(abs(received_total), 1.0)
+    total = 1e-6 * max(abs(received_total), 1.0)
     if abs(alloc_total - received_total) > total:
         warnings.warn(
             f"Decomposition conservation check failed: "
