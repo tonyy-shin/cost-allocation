@@ -1,6 +1,7 @@
 from __future__ import annotations
 import sys
-from src.ui import prompt_file_paths, show_completion, messagebox
+from tkinter import messagebox
+from src.ui import prompt_file_paths, show_completion
 import warnings
 
 import pandas as pd
