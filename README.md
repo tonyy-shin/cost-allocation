@@ -2,9 +2,9 @@
 
 A desktop tool that allocates shared (common) costs across cost centers
 based on transfer-COA rules and multi-cycle distribution schedules,
-then decomposes the results back to original COA granularity.
+then decomposes the results back to original COA.
 
-All processing runs locally. No data is transmitted externally.
+All processing runs locally. No data is transmitted externally for security reasons.
 
 ---
 
@@ -56,13 +56,13 @@ E6200,6200
 
 ### 4. Allocation Cycle — `cycle.csv`
 
-Defines the allocation rules. Multiple cycles are applied in ascending `차수` order.
+Defines the allocation rules. Multiple cycles are applied in ascending `차수`(cycle) order.
 The `%` column is a decimal (0.3 = 30%). All receiver percentages for a sender
 within the same cycle should sum to 1.0.
 
 | Column      | Type   | Description                 |
 |-------------|--------|-----------------------------|
-| 차수        | int    | Cycle number (1, 2, …)      |
+| 차수         | int    | Cycle number (1, 2, …)      |
 | Sender CC   | string | Cost center sending costs   |
 | Receiver CC | string | Cost center receiving costs |
 | %           | number | Allocation ratio (decimal)  |
