@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import filedialog
+from tkinter import filedialog, messagebox
 from pathlib import Path
 
 
@@ -79,3 +79,47 @@ def prompt_file_paths() -> dict[str, Path] | None:
     root.mainloop()
 
     return result[0]
+
+
+def show_completion(
+    status: str,
+    out_path: Path | None = None,
+    warnings: list[str] | None = None,
+    error: str | None = None,
+) -> None:
+    """Show a modal dialog summarizing the pipeline outcome.
+
+    A fresh hidden Tk root is created so this works after prompt_file_paths
+    has already destroyed its own root, and under PyInstaller --windowed
+    where no console is available. All user-facing text is in Korean.
+
+    Parameters
+    ----------
+    status : {"success", "warning", "failure"}
+        Drives which message box variant is shown.
+    out_path : Path, optional
+        Saved result path. Shown for "success" and "warning".
+    warnings : list[str], optional
+        Warning messages collected during the run. Shown for "warning".
+    error : str, optional
+        Error description. Shown for "failure".
+    """
+    root = tk.Tk()
+    root.withdraw() 
+
+    if status == "success":
+        messagebox.showinfo(
+            "완료",
+            f"result.csv 생성이 완료되었습니다.\n\n저장 경로:\n{out_path}",
+        )
+    elif status == "warning":
+        body = "\n".join(f"- {w}" for w in (warnings or []))
+        messagebox.showwarning(
+            "경고와 함께 완료",
+            "result.csv는 생성되었으나 다음 경고가 발생했습니다:\n\n"
+            f"{body}\n\n저장 경로:\n{out_path}",
+        )
+    else:  # "failure"
+        messagebox.showerror("실패", f"처리에 실패했습니다:\n\n{error}")
+
+    root.destroy()
