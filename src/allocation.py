@@ -69,15 +69,15 @@ def run_allocation_loop(
     """
     pivot = pivot.copy().astype(float)
     delta_by_cycle = {}
-    sender_ccs = set(cycle_df["Sender CC"].unique())
+    unbalanced = False
 
-    for cycle_num, cycle_rows in cycle_df.groupby("차수", sort = True):
+    for cycle_num, cycle_rows in cycle_df.groupby("차수", sort=True):
         deltas = []
-        for sender, sender_rows in cycle_rows.groupby("Sender CC", sort = False):
+        for sender, sender_rows in cycle_rows.groupby("Sender CC", sort=False):
             if sender not in pivot.columns:
                 continue
             sender_bal = pivot[sender].copy()
-            total_sent = pd.Series(0.0, index = pivot.index)
+            total_sent = pd.Series(0.0, index=pivot.index)
 
             for receiver, pct in zip(sender_rows["Receiver CC"], sender_rows["%"]):
                 received = sender_bal * pct
@@ -90,13 +90,16 @@ def run_allocation_loop(
                 tmp["Receiver CC"] = receiver
                 deltas.append(tmp)
             pivot[sender] -= total_sent
+            # Check residual the moment this sender finishes distributing,
+            # before a later cycle can credit it back as a receiver.
+            if (sender_bal - total_sent).abs().max() > 1e-6:
+                unbalanced = True
         delta_by_cycle[cycle_num] = (
-            pd.concat(deltas, ignore_index = True) if deltas 
-            else pd.DataFrame(columns = ["전기COA", "Receiver CC", "Amounts"])
+            pd.concat(deltas, ignore_index=True) if deltas
+            else pd.DataFrame(columns=["전기COA", "Receiver CC", "Amounts"])
         )
-    
-    valid_senders = [cc for cc in sender_ccs if cc in pivot.columns]
-    if valid_senders and (pivot[valid_senders].abs() > 1e-6).any().any():
+
+    if unbalanced:
         warnings.warn("Sender CC balances did not reach 0 after allocation")
 
     return pivot, delta_by_cycle
