@@ -54,7 +54,7 @@ def normalize_code_column(series: pd.Series) -> pd.Series:
     )
 
 
-# ── CSV readers (Step 1) ────────────────────────────────────────────────────
+# Step 1: CSV readers
 
 
 def load_cc(path: Path) -> pd.DataFrame:
@@ -162,7 +162,7 @@ def load_cycle(path: Path) -> pd.DataFrame:
 
 
 
-# ── CategoricalDtype (Step 2-A) ────────────────────────────────────────────
+# Step 2-A: CategoricalDtype
 
 
 def build_category_dtypes(
@@ -230,7 +230,7 @@ def apply_category_dtypes(
     return cc_df, coa_df, mapping_df
 
 
-# ── CC enrichment (Step 2-B) ───────────────────────────────────────────────
+# Step 2-B: CC enrichment
 
 
 def enrich_cc(coa_df: pd.DataFrame, cc_df: pd.DataFrame) -> pd.DataFrame:
