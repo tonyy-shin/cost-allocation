@@ -1,5 +1,6 @@
 from __future__ import annotations
 import sys
+from tkinter import messagebox
 import warnings
 
 import pandas as pd
@@ -47,11 +48,13 @@ def _load_inputs(
 
     unknown_ccs = validate_cycle_cc(cycle_df, cc_df)
     if unknown_ccs:
-        print(f"[Warning] CCs not found in master: {unknown_ccs}")
-        ans = input("Continue anyway? [y/N]: ").strip().lower()
-        if ans != "y":
-            print("Aborted.")
-            sys.exit(1)
+        msg = (
+        f"The following CCs were not found in the master:\n"
+        f"{', '.join(unknown_ccs)}\n\n"
+        f"Continue anyway?"
+    )
+    if not messagebox.askyesno("Unknown CC Warning", msg):
+        sys.exit(0)
 
     dtypes = build_category_dtypes(cc_df, coa_df, mapping_df)
     cc_df, coa_df, mapping_df = apply_category_dtypes(
