@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import warnings
 
-import numpy as np
 import pandas as pd
 
 
@@ -68,6 +67,13 @@ def run_allocation_loop(
                          Amount received by each Receiver CC per cycle.
     """
     pivot = pivot.copy().astype(float)
+    # Per-CC common-cost balance before any allocation. A CC's own original
+    # balance is only ever pushed out if that CC is a Sender; otherwise it
+    # stays put and is dropped from the result (it is never "received"). The
+    # initial balance is captured here so non-sender residuals can be reported
+    # with the correct amount, without flagging receivers that legitimately
+    # accumulate balance during the loop.
+    initial_cc_balance = pivot.sum(axis=0)
     delta_by_cycle = {}
     unbalanced = False
 
@@ -102,6 +108,15 @@ def run_allocation_loop(
     if unbalanced:
         warnings.warn("배부 후 sender CC 잔액이 0이 되지 않았습니다")
 
+    # A CC carrying common cost that never sends keeps its original balance,
+    # which then disappears from the result. Report each such CC by amount.
+    senders = set(cycle_df["Sender CC"])
+    for cc, amount in initial_cc_balance.items():
+        if cc not in senders and abs(amount) > 1e-6:
+            warnings.warn(
+                f"CC {cc}의 공통비 잔액 {amount:,.0f}원이 배부되지 않았습니다. "
+                f"cycle.csv에 Sender로 추가하거나 배부 비율 합계를 확인하세요."
+            )
 
     return pivot, delta_by_cycle
 
@@ -155,7 +170,9 @@ def decompose_to_original_coa(
     Parameters
     ----------
     received_by_cycle : aggregate_received_by_cycle result.
-    df_ratio          : calculate_coa_ratio result (includes the '비중' ratio column).
+    df_ratio          : calculate_coa_ratio result. Columns: 전기COA, 기존COA, 비중.
+                        The single source of truth for base COA shares; this
+                        function applies it directly without recomputing ratios.
 
     Returns
     -------
@@ -163,33 +180,12 @@ def decompose_to_original_coa(
         Columns: 전기COA, 기존COA, Cost Center, 1차배분금액, 2차배분금액, ..., n차배분금액
         n equals the number of keys in received_by_cycle.
     """
-    ec_koa = (
-        df_ratio.groupby(["전기COA", "기존COA"], observed = True)
-        ["Amounts"].sum()
-        .reset_index(name = "koa_total")
-    )
-    ec_total = (
-        df_ratio.groupby("전기COA", observed = True)
-        ["Amounts"].sum()
-        .reset_index(name = "ec_total")
-    )
-
-    ec_koa = ec_koa.merge(ec_total, on = "전기COA", how = "left")
-    n_koa = ec_koa.groupby("전기COA", observed = True)["기존COA"].transform("count")
-
-    ec_koa["ratio"] = np.where(
-        ec_koa["ec_total"] != 0,
-        ec_koa["koa_total"] / ec_koa["ec_total"],
-        1.0 / n_koa,
-    )
-    decomp = ec_koa[["전기COA", "기존COA", "ratio"]]
-
     all_rows = []
     for cycle_num, received_df in received_by_cycle.items():
         if received_df.empty:
             continue
-        merged = received_df.merge(decomp, on = "전기COA", how = "left")
-        merged["allocated"] = merged["Amounts"] * merged["ratio"]
+        merged = received_df.merge(df_ratio, on = "전기COA", how = "left")
+        merged["allocated"] = merged["Amounts"] * merged["비중"]
         merged = merged.rename(columns = {"Receiver CC": "Cost Center"})
         merged["col"] = f"{cycle_num}차배분금액"
         all_rows.append(

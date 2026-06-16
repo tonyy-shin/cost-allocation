@@ -126,60 +126,51 @@ def aggregate_for_allocation(df_5a: pd.DataFrame) -> pd.DataFrame:
 # Step 6: Base COA ratio calculation
 
 
-def calculate_coa_ratio(
-    df_5a: pd.DataFrame,
-    mapping_df: pd.DataFrame,
-) -> pd.DataFrame:
-    """Compute each base COA's share within its (transfer COA, CC) group.
+def calculate_coa_ratio(df_5a: pd.DataFrame) -> pd.DataFrame:
+    """Compute each base COA's share within its transfer COA.
 
-    Fallback order:
-      1st : sum(transfer COA, CC) != 0  ->  Amount / sum(transfer COA, CC)
-      2nd : sum(transfer COA) != 0      ->  sum(transfer COA, base COA) / sum(transfer COA)
-      Equal: transfer COA total == 0    ->  1 / n_coa  (number of base COAs per transfer COA
-                                            from mapping_df)
+    Per the allocation business rule, a received amount is decomposed back to
+    base COA using the SENDER's transfer COA composition; the receiver CC's own
+    amounts are irrelevant. The ratio therefore has no Cost Center dimension:
 
-    Implementation must use np.select with vectorized transforms to avoid
-    row-wise apply / iterrows. All groupby calls must use observed=True.
+        비중 = sum(Amounts | 전기COA, 기존COA) / sum(Amounts | 전기COA)
+
+    Fallback: when a transfer COA total is 0, its base COAs split evenly at
+    1 / n, where n is the number of distinct base COAs observed for that
+    transfer COA. The observed count (not the mapping-wide count) is used so the
+    shares always sum to 1 and the total amount is conserved on decomposition.
+
+    All groupby calls must use observed=True.
 
     Parameters
     ----------
-    df_5a      : aggregate_detail result. Columns: 전기COA, 기존COA, Cost Center, Amounts
-    mapping_df : Transfer COA mapping DataFrame. Columns: 전기COA, 기존COA
+    df_5a : aggregate_detail result. Columns: 전기COA, 기존COA, Cost Center, Amounts
 
     Returns
     -------
     pd.DataFrame
-        df_5a with an additional '비중' (ratio) column.
+        Columns: 전기COA, 기존COA, 비중. One row per (transfer COA, base COA) pair.
     """
-    df = df_5a.copy()
-
-    df["sum_ec_cc"] = (
-        df.groupby(["전기COA", "Cost Center"], observed = True)
-        ["Amounts"].transform("sum")
+    koa = (
+        df_5a.groupby(["전기COA", "기존COA"], observed = True)["Amounts"]
+        .sum()
+        .reset_index(name = "koa_total")
     )
-    df["sum_ec"] = (
-        df.groupby("전기COA", observed = True)
-        ["Amounts"].transform("sum")
+    koa["ec_total"] = (
+        koa.groupby("전기COA", observed = True)["koa_total"].transform("sum")
     )
-    df["sum_ec_coa"] = (
-        df.groupby(["전기COA", "기존COA"], observed=True)
-        ["Amounts"].transform("sum")
+    koa["n_coa"] = (
+        koa.groupby("전기COA", observed = True)["기존COA"].transform("count")
     )
 
-    n_coa_map = mapping_df.groupby("전기COA", observed=True)["기존COA"].count()
-    df["n_coa"] = df["전기COA"].map(n_coa_map)
+    with np.errstate(divide = "ignore", invalid = "ignore"):
+        koa["비중"] = np.where(
+            koa["ec_total"] != 0,
+            koa["koa_total"] / koa["ec_total"],
+            1.0 / koa["n_coa"],
+        )
 
-    conditions = [
-        df["sum_ec_cc"] != 0,
-        df["sum_ec"] != 0,
-    ]
-    choices = [
-        df["Amounts"] / df["sum_ec_cc"],
-        df["sum_ec_coa"] / df["sum_ec"],
-    ]
-    df["비중"] = np.select(conditions, choices, default = 1 / df["n_coa"])
-
-    return df.drop(columns = ["sum_ec_cc", "sum_ec", "sum_ec_coa", "n_coa"])
+    return koa[["전기COA", "기존COA", "비중"]]
 
 
 # Input validation
@@ -208,3 +199,37 @@ def validate_cycle_cc(
     ]).unique()
 
     return sorted(cc for cc in cycle_ccs if cc not in master)
+
+
+def validate_sender_coverage(
+    df_5b: pd.DataFrame,
+    cycle_df: pd.DataFrame,
+) -> list[tuple[str, float]]:
+    """Check that every CC holding common-cost balance appears as a Sender.
+
+    A common-cost CC that never sends keeps its balance through every cycle.
+    Because the final result is built only from received (allocated) amounts,
+    that undistributed balance never reaches build_result and silently vanishes,
+    breaking the conservation law 배부전액 합 == 배부합계. This function only
+    detects such CCs; it does not correct them.
+
+    Parameters
+    ----------
+    df_5b    : aggregate_for_allocation result. Columns: 전기COA, Cost Center, Amounts.
+    cycle_df : load_cycle result.
+
+    Returns
+    -------
+    list[tuple[str, float]]
+        (CC, total common-cost amount) for every CC that holds a non-zero
+        common-cost balance but never appears as a Sender. Sorted by CC.
+        Empty list means every common-cost CC is covered.
+    """
+    cc_totals = df_5b.groupby("Cost Center", observed = True)["Amounts"].sum()
+    senders = set(cycle_df["Sender CC"])
+    violators = [
+        (str(cc), float(amount))
+        for cc, amount in cc_totals.items()
+        if cc not in senders and abs(amount) > 1e-6
+    ]
+    return sorted(violators, key = lambda item: item[0])

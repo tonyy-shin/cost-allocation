@@ -29,6 +29,7 @@ from src.prepare import (
     calculate_coa_ratio,
     separate_common_direct,
     validate_cycle_cc,
+    validate_sender_coverage,
 )
 from src.ui import prompt_file_paths
 
@@ -84,6 +85,7 @@ def _load_inputs(
 def _prepare_costs(
     coa_df: pd.DataFrame,
     mapping_df: pd.DataFrame,
+    cycle_df: pd.DataFrame,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Steps 3–6: separate common/direct, aggregate, compute base COA ratios.
 
@@ -94,7 +96,7 @@ def _prepare_costs(
 
     df_5a = aggregate_detail(df_common)
     df_5b = aggregate_for_allocation(df_5a)
-    df_ratio = calculate_coa_ratio(df_5a, mapping_df)
+    df_ratio = calculate_coa_ratio(df_5a)
 
     return df_direct, df_5b, df_ratio
 
@@ -139,7 +141,9 @@ def main() -> None:
             cc_df, raw_coa_df, coa_df, mapping_df, cycle_df = _load_inputs(
                 paths, notes
             )
-            df_direct, df_5b, df_ratio = _prepare_costs(coa_df, mapping_df)
+            df_direct, df_5b, df_ratio = _prepare_costs(
+                coa_df, mapping_df, cycle_df
+            )
 
             cc_list = cc_df["CC"].unique().tolist()
             common_decomposed = _run_allocation(df_5b, df_ratio, cc_list, cycle_df)

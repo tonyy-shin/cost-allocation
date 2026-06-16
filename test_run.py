@@ -43,7 +43,7 @@ enriched = assign_transfer_coa(coa_df, mapping_df)
 df_common, df_direct = separate_common_direct(enriched)
 df_5a  = aggregate_detail(df_common)
 df_5b  = aggregate_for_allocation(df_5a)
-df_ratio = calculate_coa_ratio(df_5a, mapping_df)
+df_ratio = calculate_coa_ratio(df_5a)
 
 # Steps 7-9
 cc_list = cc_df["CC"].unique().tolist()
