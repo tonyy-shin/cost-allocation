@@ -128,7 +128,7 @@ def load_mapping(path: Path) -> pd.DataFrame:
         encoding = "utf-8-sig"
     )
 
-    df["전기COA"] = df["전기COA"] = df["전기COA"].fillna("").astype(str).str.strip()
+    df["전기COA"] = df["전기COA"].fillna("").astype(str).str.strip()
     df["기존COA"] = normalize_code_column(df["기존COA"])
     return df
 

@@ -31,7 +31,6 @@ from src.prepare import (
     validate_cycle_cc,
     validate_sender_coverage,
 )
-from src.ui import prompt_file_paths
 
 
 class PipelineAborted(Exception):

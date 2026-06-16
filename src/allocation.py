@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import warnings
 
+import numpy as np
 import pandas as pd
 
 
@@ -216,7 +217,7 @@ def decompose_to_original_coa(
     )
     alloc_total = result[alloc_cols].values.sum()
     total = 1e-6 * max(abs(received_total), 1.0)
-    if abs(alloc_total - received_total) > total:
+    if not np.isfinite(alloc_total) or abs(alloc_total - received_total) > total:
         warnings.warn(
             f"분해 총액 보존 검증 실패: "
             f"수령액 = {received_total: .4f}, 배분액 = {alloc_total: .4f}"
