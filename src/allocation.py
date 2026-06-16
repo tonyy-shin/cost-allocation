@@ -6,6 +6,18 @@ import numpy as np
 import pandas as pd
 
 
+TOTAL_COL = "배부합계"
+
+
+def alloc_col(cycle: int) -> str:
+    """Return the allocation column name for a given cycle number."""
+    return f"{cycle}차배분금액"
+
+
+def parse_alloc_col(col: str) -> int:
+    """Parse the cycle number from an allocation column name."""
+    return int(col.replace("차배분금액", ""))
+
 
 # Step 7-1: Build pivot matrix
 
@@ -188,7 +200,7 @@ def decompose_to_original_coa(
         merged = received_df.merge(df_ratio, on = "전기COA", how = "left")
         merged["allocated"] = merged["Amounts"] * merged["비중"]
         merged = merged.rename(columns = {"Receiver CC": "Cost Center"})
-        merged["col"] = f"{cycle_num}차배분금액"
+        merged["col"] = alloc_col(cycle_num)
         all_rows.append(
             merged[["전기COA", "기존COA", "Cost Center", "col", "allocated"]]
         )
@@ -208,7 +220,7 @@ def decompose_to_original_coa(
 
     alloc_cols = sorted(
         [c for c in result.columns if "배분금액" in c],
-        key=lambda c: int(c.replace("차배분금액", "")),
+        key=parse_alloc_col,
     )
     result = result[["전기COA", "기존COA", "Cost Center"] + alloc_cols]
 
