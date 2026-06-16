@@ -4,8 +4,10 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.allocation import TOTAL_COL, alloc_col, parse_alloc_col
 
-# Steps 10–11: Build final result with full grid 
+
+# Steps 10–11: Build final result with full grid
 
 
 def build_result(
@@ -47,15 +49,15 @@ def build_result(
         All columns as described above.
         Every (base COA x CC) combination is present; missing values filled with 0.
     """
-    alloc_cols = [f"{i}차배분금액" for i in range(1, n_cycles + 1)]
-    numeric_cols = alloc_cols + ["배부합계"]
+    alloc_cols = [alloc_col(i) for i in range(1, n_cycles + 1)]
+    numeric_cols = alloc_cols + [TOTAL_COL]
 
     # Common costs
     common = common_decomposed.copy()
     for col in alloc_cols:
         if col not in common.columns:
             common[col] = 0.0
-    common["배부합계"] = common[alloc_cols].sum(axis=1)
+    common[TOTAL_COL] = common[alloc_cols].sum(axis=1)
     common = common[["전기COA", "기존COA", "Cost Center"] + numeric_cols]
 
     # Direct costs
@@ -63,7 +65,7 @@ def build_result(
     direct = direct.rename(columns={"COA": "기존COA"})
     for col in alloc_cols:
         direct[col] = 0.0
-    direct["배부합계"] = direct["Amounts"]
+    direct[TOTAL_COL] = direct["Amounts"]
     direct = direct[["전기COA", "기존COA", "Cost Center"] + numeric_cols]
 
     # Combine and group
