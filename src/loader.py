@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import warnings
 from pathlib import Path
 
 import pandas as pd
@@ -26,7 +27,7 @@ def _validate_local_path(path: Path) -> None:
         raise ValueError(f"Remote paths are not allowed: {path}")
 
 
-def normalize_code_column(series: pd.Series) -> pd.Series:
+def normalize_code_column(series: pd.Series, filename: str = "") -> pd.Series:
     """Normalize code strings '7832.0' to '7832'.
 
     CSVs exported from Excel may store integer codes as '7832.0' strings.
@@ -41,17 +42,40 @@ def normalize_code_column(series: pd.Series) -> pd.Series:
     ----------
     series : pd.Series
         Code column read with dtype=str.
+    filename : str, optional
+        Source CSV filename, used only to make the conversion warning more
+        helpful. Defaults to "" when the caller does not have it.
 
     Returns
     -------
     pd.Series
         Normalized string code column.
     """
+    numeric = pd.to_numeric(series, errors="coerce")  # str("100.0") to float(100.0)
+
+    # Detect values that were non-empty before conversion but became NaN after.
+    # These are silently dropped by the coerce, so warn the user about them.
+    before = series.astype(str).str.strip()
+    lost_mask = (
+        before.notna()
+        & (before != "")
+        & (before != "nan")
+        & numeric.isna()
+    )
+    lost_values = series[lost_mask].astype(str).unique().tolist()
+    if lost_values:
+        col_name = series.name if series.name is not None else "코드"
+        file_hint = f"{filename} " if filename else ""
+        warnings.warn(
+            f"{file_hint}{col_name} 컬럼에서 코드로 변환되지 않은 값이 있습니다: "
+            f"{lost_values} 해당 행은 매핑에서 제외됩니다."
+        )
+
     return (
-        pd.to_numeric(series, errors="coerce") # str("100.0") to float(100.0)
-        .astype("Int64") # float to int
-        .astype(str) # int to str
-        .str.replace("<NA>","",regex = False) # drop missing value as ""
+        numeric
+        .astype("Int64")  # float to int
+        .astype(str)  # int to str
+        .str.replace("<NA>", "", regex=False)  # drop missing value as ""
     )
 
 
@@ -83,7 +107,7 @@ def load_cc(path: Path) -> pd.DataFrame:
     if missing:
         raise ValueError(f"{os.path.basename(path)}에 필수 컬럼이 없습니다: {missing}")
 
-    df["CC"] = normalize_code_column(df["CC"])
+    df["CC"] = normalize_code_column(df["CC"], os.path.basename(path))
     return df
 
 
@@ -113,8 +137,9 @@ def load_coa_amount(path: Path) -> pd.DataFrame:
     if missing:
         raise ValueError(f"{os.path.basename(path)}에 필수 컬럼이 없습니다: {missing}")
 
-    df["COA"] = normalize_code_column(df["COA"])
-    df["Cost Center"] = normalize_code_column(df["Cost Center"])
+    fname = os.path.basename(path)
+    df["COA"] = normalize_code_column(df["COA"], fname)
+    df["Cost Center"] = normalize_code_column(df["Cost Center"], fname)
     return df
 
 
@@ -145,7 +170,7 @@ def load_mapping(path: Path) -> pd.DataFrame:
         raise ValueError(f"{os.path.basename(path)}에 필수 컬럼이 없습니다: {missing}")
 
     df["전기COA"] = df["전기COA"].fillna("").astype(str).str.strip()
-    df["기존COA"] = normalize_code_column(df["기존COA"])
+    df["기존COA"] = normalize_code_column(df["기존COA"], os.path.basename(path))
     return df
 
 
@@ -177,8 +202,9 @@ def load_cycle(path: Path) -> pd.DataFrame:
     if missing:
         raise ValueError(f"{os.path.basename(path)}에 필수 컬럼이 없습니다: {missing}")
 
-    df["Sender CC"] = normalize_code_column(df["Sender CC"])
-    df["Receiver CC"] = normalize_code_column(df["Receiver CC"])
+    fname = os.path.basename(path)
+    df["Sender CC"] = normalize_code_column(df["Sender CC"], fname)
+    df["Receiver CC"] = normalize_code_column(df["Receiver CC"], fname)
     return df
 
 
