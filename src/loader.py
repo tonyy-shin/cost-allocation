@@ -27,6 +27,40 @@ def _validate_local_path(path: Path) -> None:
         raise ValueError(f"Remote paths are not allowed: {path}")
 
 
+def _read_csv(path: Path, **kwargs) -> pd.DataFrame:
+    """Read a CSV trying UTF-8 first, then EUC-KR (CP949).
+
+    Excel on Korean Windows saves "CSV (comma delimited)" files in EUC-KR
+    rather than UTF-8, which corrupts Korean headers (e.g. 전기COA, 차수) and
+    makes required-column checks fail. utf-8-sig is tried first so existing
+    UTF-8/BOM files behave exactly as before; only on UnicodeDecodeError do we
+    fall back to euc-kr.
+
+    Parameters
+    ----------
+    path : Path
+        Local CSV path. Extra keyword arguments (dtype, etc.) are forwarded
+        to pandas.read_csv unchanged.
+
+    Returns
+    -------
+    pd.DataFrame
+
+    Raises
+    ------
+    ValueError
+        If the file decodes as neither UTF-8 nor EUC-KR.
+    """
+    for encoding in ("utf-8-sig", "euc-kr"):
+        try:
+            return pd.read_csv(path, encoding=encoding, **kwargs)
+        except UnicodeDecodeError:
+            continue
+    raise ValueError(
+        f"{os.path.basename(path)} 인코딩을 인식할 수 없습니다 (UTF-8 또는 EUC-KR이 아님)."
+    )
+
+
 def normalize_code_column(series: pd.Series, filename: str = "") -> pd.Series:
     """Normalize code strings '7832.0' to '7832'.
 
@@ -96,10 +130,9 @@ def load_cc(path: Path) -> pd.DataFrame:
         Column: CC (str, normalized)
     """
     _validate_local_path(path)
-    df = pd.read_csv(
+    df = _read_csv(
         path,
         dtype = {"CC": str},
-        encoding = "utf-8-sig",
     )
 
     required = ["CC"]
@@ -126,10 +159,9 @@ def load_coa_amount(path: Path) -> pd.DataFrame:
     """
     _validate_local_path(path)
 
-    df = pd.read_csv(
+    df = _read_csv(
         path,
         dtype = {"COA": str, "Cost Center": str},
-        encoding = "utf-8-sig"
     )
 
     required = ["COA", "Cost Center", "Amounts"]
@@ -158,10 +190,9 @@ def load_mapping(path: Path) -> pd.DataFrame:
     """
     _validate_local_path(path)
 
-    df = pd.read_csv(
+    df = _read_csv(
         path,
         dtype = {"전기COA": str, "기존COA": str},
-        encoding = "utf-8-sig"
     )
 
     required = ["전기COA", "기존COA"]
@@ -191,10 +222,9 @@ def load_cycle(path: Path) -> pd.DataFrame:
     """
     _validate_local_path(path)
 
-    df = pd.read_csv(
+    df = _read_csv(
         path,
         dtype = {"Sender CC": str, "Receiver CC": str},
-        encoding = "utf-8-sig"
     )
 
     required = ["차수", "Sender CC", "Receiver CC", "%"]

@@ -61,6 +61,50 @@ def test_normalize_warns_on_non_numeric_value():
     assert _is_blank(out.iloc[0])
 
 
+# ENCODING cases
+#
+# Excel "CSV (comma delimited)" on Korean Windows saves files in EUC-KR, which
+# corrupts Korean headers when read as UTF-8 and surfaces as a "필수 컬럼 누락"
+# error. The loaders fall back to EUC-KR so these files load correctly.
+
+
+def test_load_mapping_reads_euc_kr(tmp_path):
+    p = tmp_path / "mapping.csv"
+    # Korean headers (전기COA, 기존COA) saved as EUC-KR, like Excel's default CSV.
+    p.write_text("전기COA,기존COA\nE6100,6100\n", encoding="euc-kr")
+    df = load_mapping(p)
+    assert {"전기COA", "기존COA"} <= set(df.columns)
+    assert df["기존COA"].iloc[0] == "6100"
+
+
+def test_load_cycle_reads_euc_kr(tmp_path):
+    p = tmp_path / "cycle.csv"
+    # Korean header 차수 saved as EUC-KR.
+    p.write_text(
+        "차수,Sender CC,Receiver CC,%\n1,1001,1002,0.3\n", encoding="euc-kr"
+    )
+    df = load_cycle(p)
+    assert {"차수", "Sender CC", "Receiver CC", "%"} <= set(df.columns)
+    assert df["Sender CC"].iloc[0] == "1001"
+
+
+def test_load_mapping_still_reads_utf8_sig(tmp_path):
+    # UTF-8 with BOM (Excel's "CSV UTF-8") must keep working unchanged.
+    p = tmp_path / "mapping.csv"
+    p.write_text("전기COA,기존COA\nE6100,6100\n", encoding="utf-8-sig")
+    df = load_mapping(p)
+    assert {"전기COA", "기존COA"} <= set(df.columns)
+
+
+def test_load_mapping_unknown_encoding_raises(tmp_path):
+    p = tmp_path / "mapping.csv"
+    # 0xFF is an invalid lead byte for both UTF-8 and EUC-KR, so neither decoder
+    # succeeds and the loader reports an encoding error rather than crashing.
+    p.write_bytes(b"\xff\xff\xff\n")
+    with pytest.raises(ValueError, match="인코딩"):
+        load_mapping(p)
+
+
 # FAILURE cases
 
 
