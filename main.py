@@ -49,10 +49,30 @@ def _load_inputs(
     Appends a note to `notes` if the user continues past unknown CCs.
     Raises PipelineAborted if the user declines to continue.
     """
-    cc_df = load_cc(paths["cc"])
-    coa_df = load_coa_amount(paths["coa_amount"])
-    mapping_df = load_mapping(paths["mapping"])
-    cycle_df = load_cycle(paths["cycle"])
+    validation_errors: list[str] = []
+
+    cc_df = coa_df = mapping_df = cycle_df = None
+    try:
+        cc_df = load_cc(paths["cc"])
+    except ValueError as e:
+        validation_errors.append(str(e))
+    try:
+        coa_df = load_coa_amount(paths["coa_amount"])
+    except ValueError as e:
+        validation_errors.append(str(e))
+    try:
+        mapping_df = load_mapping(paths["mapping"])
+    except ValueError as e:
+        validation_errors.append(str(e))
+    try:
+        cycle_df = load_cycle(paths["cycle"])
+    except ValueError as e:
+        validation_errors.append(str(e))
+
+    if validation_errors:
+        for msg in validation_errors:
+            notes.append(msg)
+        raise PipelineAborted("필수 컬럼 누락으로 실행이 중단되었습니다.")
 
     unknown_ccs = validate_cycle_cc(cycle_df, cc_df)
     if unknown_ccs:
@@ -156,10 +176,10 @@ def main() -> None:
         messages = notes + [str(w.message) for w in caught]
 
     except PipelineAborted as exc:
-        show_completion("failure", error=str(exc))
+        show_completion("failure", error=str(exc), warnings=notes)
         sys.exit(0)  # deliberate user cancel: not an error exit code
     except Exception as exc:
-        show_completion("failure", error=f"{type(exc).__name__}: {exc}")
+        show_completion("failure", error=f"{type(exc).__name__}: {exc}", warnings=notes)
         sys.exit(1)
 
     if messages:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pandas as pd
@@ -72,10 +73,15 @@ def load_cc(path: Path) -> pd.DataFrame:
     """
     _validate_local_path(path)
     df = pd.read_csv(
-        path, 
-        dtype = {"CC": str}, 
+        path,
+        dtype = {"CC": str},
         encoding = "utf-8-sig",
     )
+
+    required = ["CC"]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise ValueError(f"{os.path.basename(path)}에 필수 컬럼이 없습니다: {missing}")
 
     df["CC"] = normalize_code_column(df["CC"])
     return df
@@ -102,6 +108,11 @@ def load_coa_amount(path: Path) -> pd.DataFrame:
         encoding = "utf-8-sig"
     )
 
+    required = ["COA", "Cost Center", "Amounts"]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise ValueError(f"{os.path.basename(path)}에 필수 컬럼이 없습니다: {missing}")
+
     df["COA"] = normalize_code_column(df["COA"])
     df["Cost Center"] = normalize_code_column(df["Cost Center"])
     return df
@@ -127,6 +138,11 @@ def load_mapping(path: Path) -> pd.DataFrame:
         dtype = {"전기COA": str, "기존COA": str},
         encoding = "utf-8-sig"
     )
+
+    required = ["전기COA", "기존COA"]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise ValueError(f"{os.path.basename(path)}에 필수 컬럼이 없습니다: {missing}")
 
     df["전기COA"] = df["전기COA"].fillna("").astype(str).str.strip()
     df["기존COA"] = normalize_code_column(df["기존COA"])
@@ -155,6 +171,11 @@ def load_cycle(path: Path) -> pd.DataFrame:
         dtype = {"Sender CC": str, "Receiver CC": str},
         encoding = "utf-8-sig"
     )
+
+    required = ["차수", "Sender CC", "Receiver CC", "%"]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise ValueError(f"{os.path.basename(path)}에 필수 컬럼이 없습니다: {missing}")
 
     df["Sender CC"] = normalize_code_column(df["Sender CC"])
     df["Receiver CC"] = normalize_code_column(df["Receiver CC"])

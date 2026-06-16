@@ -173,6 +173,10 @@ def show_completion(
             f"{body}\n\n저장 경로:\n{out_path}",
         )
     else:  # "failure"
-        messagebox.showerror("실패", f"처리에 실패했습니다:\n\n{error}")
+        text = f"처리에 실패했습니다:\n\n{error}"
+        body = "\n".join(f"- {w}" for w in (warnings or []))
+        if body:
+            text += f"\n\n{body}"
+        messagebox.showerror("실패", text)
 
     root.destroy()
