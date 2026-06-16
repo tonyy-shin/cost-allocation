@@ -115,6 +115,13 @@ combinations with no allocation are filled with 0.
   reach 0 and that total amounts are preserved. A warning is emitted if either check
   fails — review the input data if this occurs.
 - **No rounding**: All amounts are output as raw float values.
+- **Sender 미등록 CC 경고**: 공통비를 보유한 CC가 cycle.csv에 Sender로
+  등록되지 않은 경우 경고가 표시됩니다. 해당 금액은 배부합계에 포함되지
+  않으므로 cycle.csv를 확인하세요.
+- **CSV 컬럼 누락 오류**: 필수 컬럼이 없는 CSV를 선택하면 누락된 컬럼명과
+  파일명을 포함한 오류 메시지가 표시되고 실행이 중단됩니다.
+- **비숫자 코드 경고**: COA 또는 CC 컬럼에 숫자로 변환할 수 없는 값이 있으면
+  경고가 표시됩니다. 해당 행은 매핑에서 제외됩니다.
 
 ---
 
@@ -140,13 +147,25 @@ pip install -r requirements.txt
 python main.py
 ```
 
+### Run tests
+
+```bash
+pip install -r requirements-dev.txt
+pytest tests/ -v
+```
+
+CI runs automatically on every push and pull request to `main`
+via GitHub Actions (`.github/workflows/ci.yml`).
+
 ### Dependencies
 
-- Python 3.10+
+- Python 3.12+
 - pandas
 - numpy
+- pytest (development/testing)
 
-See `requirements.txt` for pinned versions.
+See `requirements.txt` for pinned versions, and `requirements-dev.txt`
+for development/testing dependencies.
 
 ### Distribution
 
