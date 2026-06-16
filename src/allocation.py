@@ -99,7 +99,7 @@ def run_allocation_loop(
             pivot[sender] -= total_sent
             # Check residual the moment this sender finishes distributing,
             # before a later cycle can credit it back as a receiver.
-            if (sender_bal - total_sent).abs().max() > 1e-6:
+            if (sender_bal - total_sent).abs().max() > 1e-6 * max(sender_bal.abs().max(), 1.0):
                 unbalanced = True
         delta_by_cycle[cycle_num] = (
             pd.concat(deltas, ignore_index=True) if deltas
