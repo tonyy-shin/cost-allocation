@@ -89,7 +89,7 @@ def aggregate_detail(df_common: pd.DataFrame) -> pd.DataFrame:
     return (
         df_common
         .groupby(["전기COA", "COA", "Cost Center"], observed = True)
-        .sum()
+        ["Amounts"].sum()
         .reset_index()
         .rename(columns = {"COA": "기존COA"})
     )
