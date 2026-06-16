@@ -1,0 +1,4 @@
+# Development/test dependencies.
+# Includes everything in requirements.txt plus tools needed only for testing.
+-r requirements.txt
+pytest==9.1.0
