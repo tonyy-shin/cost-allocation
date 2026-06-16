@@ -57,3 +57,6 @@ plan/
 
 # Release File
 /cost_allocation.zip
+
+# pytest cache
+.pytest_cache
