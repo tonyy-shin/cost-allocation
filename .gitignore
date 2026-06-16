@@ -54,3 +54,6 @@ plan/
 
 # PyInstaller
 *.spec
+
+# Release File
+/cost_allocation.zip
