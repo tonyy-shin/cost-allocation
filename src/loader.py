@@ -75,7 +75,7 @@ def normalize_code_column(series: pd.Series, filename: str = "") -> pd.Series:
         numeric
         .astype("Int64")  # float to int
         .astype(str)  # int to str
-        .str.replace("<NA>", "", regex=False)  # drop missing value as ""
+        .fillna("")  # drop missing value as ""
     )
 
 
