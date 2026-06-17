@@ -258,8 +258,8 @@ def _normalize_cycle_ratios(df: pd.DataFrame) -> pd.DataFrame:
     Three tolerance tiers applied after parse_percent_column:
 
     - abs(sum - 1.0) < 1e-9         : OK — no action
-    - 1e-9 ≤ abs(sum - 1.0) < 0.0005 : float precision — auto-normalize + warn
-    - abs(sum - 1.0) ≥ 0.0005        : data error — all offending groups are
+    - 1e-9 ≤ abs(sum - 1.0) < 0.005 : float precision — auto-normalize + warn
+    - abs(sum - 1.0) ≥ 0.005        : data error — all offending groups are
                                        collected before a single ValueError is raised
 
     Groups whose '%' sum is 0 or NaN are skipped without error.
@@ -279,7 +279,7 @@ def _normalize_cycle_ratios(df: pd.DataFrame) -> pd.DataFrame:
     Raises
     ------
     ValueError
-        If one or more (차수, Sender CC) groups deviate from 1.0 by ≥ 0.0005.
+        If one or more (차수, Sender CC) groups deviate from 1.0 by ≥ 0.005.
         All offending groups are listed in a single message.
     """
     df = df.copy()
@@ -293,7 +293,7 @@ def _normalize_cycle_ratios(df: pd.DataFrame) -> pd.DataFrame:
         diff = abs(pct_sum - 1.0)
         if diff < 1e-9:
             continue
-        if diff < 0.0005:
+        if diff < 0.005:
             to_normalize.append((group.index, pct_sum, cycle_num, sender))
         else:
             errors.append(

@@ -134,8 +134,8 @@ def test_parse_percent_warns_on_value_above_one_without_sign():
 #
 # _normalize_cycle_ratios inspects each (차수, Sender CC) group's '%' sum:
 #   < 1e-9 from 1.0  → OK (no action)
-#   1e-9..0.0005 away → float precision, auto-normalize + warn
-#   ≥ 0.0005 away     → data error, collect all offenders, raise ValueError
+#   1e-9..0.005 away → float precision, auto-normalize + warn
+#   ≥ 0.005 away     → data error, collect all offenders, raise ValueError
 
 
 def _cycle_df(rows) -> pd.DataFrame:
@@ -152,7 +152,7 @@ def test_normalize_cycle_ratios_exact_sum_no_warning():
 
 
 def test_normalize_cycle_ratios_float_precision_auto_normalizes():
-    # 5e-9 is in [1e-9, 0.0005): triggers auto-normalization with a UserWarning.
+    # 5e-9 is in [1e-9, 0.005): triggers auto-normalization with a UserWarning.
     eps = 5e-9
     df = _cycle_df([(1, "A", "B", 0.5), (1, "A", "C", 0.5 + eps)])
     with pytest.warns(UserWarning, match="자동 정규화"):
@@ -161,7 +161,7 @@ def test_normalize_cycle_ratios_float_precision_auto_normalizes():
 
 
 def test_normalize_cycle_ratios_data_error_raises():
-    # sum = 1.05 (diff 0.05 ≥ 0.0005): data error, must raise.
+    # sum = 1.05 (diff 0.05 ≥ 0.005): data error, must raise.
     df = _cycle_df([(1, "A", "B", 0.6), (1, "A", "C", 0.45)])
     with pytest.raises(ValueError, match="직접 수정"):
         _normalize_cycle_ratios(df)
