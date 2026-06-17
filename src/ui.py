@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import tkinter as tk
 from tkinter import filedialog, messagebox
+from tkinter.scrolledtext import ScrolledText
 from pathlib import Path
 
 
@@ -166,12 +167,61 @@ def show_completion(
             f"result.csv 생성이 완료되었습니다.\n\n저장 경로:\n{out_path}",
         )
     elif status == "warning":
-        body = "\n".join(f"- {w}" for w in (warnings or []))
-        messagebox.showwarning(
-            "경고와 함께 완료",
-            "result.csv는 생성되었으나 다음 경고가 발생했습니다:\n\n"
-            f"{body}\n\n저장 경로:\n{out_path}",
+        # A custom window keeps the warning list inside a fixed-height,
+        # scrollable area so the dialog never grows past the screen no matter
+        # how many warnings are collected. The hidden root is reused as the
+        # window; closing it or the "확인" button calls root.destroy(), which
+        # ends mainloop. This branch returns early so it does not hit the
+        # shared root.destroy() at the end of the function.
+        items = warnings or []
+        body = "\n".join(f"- {w}" for w in items)
+
+        root.deiconify()
+        root.title("경고와 함께 완료")
+
+        tk.Label(
+            root,
+            text="result.csv는 생성되었으나 다음 경고가 발생했습니다:",
+            anchor="w",
+            justify="left",
+        ).pack(fill="x", padx=12, pady=(12, 4))
+
+        text = ScrolledText(
+            root,
+            width=70,
+            height=min(max(len(items), 3), 15),
+            wrap="none",
         )
+        text.pack(fill="both", expand=True, padx=12)
+        text.insert("1.0", body)
+        text.config(state="disabled")
+
+        tk.Label(
+            root,
+            text=f"저장 경로:\n{out_path}",
+            anchor="w",
+            justify="left",
+        ).pack(fill="x", padx=12, pady=(8, 4))
+
+        tk.Button(root, text="확인", command=root.destroy, width=12).pack(
+            pady=(0, 12)
+        )
+
+        root.protocol("WM_DELETE_WINDOW", root.destroy)
+
+        # Size the window to its content, but cap the height at 80% of the
+        # screen, then center it.
+        root.update_idletasks()
+        screen_w = root.winfo_screenwidth()
+        screen_h = root.winfo_screenheight()
+        win_w = root.winfo_reqwidth()
+        win_h = min(root.winfo_reqheight(), int(screen_h * 0.8))
+        x = (screen_w - win_w) // 2
+        y = (screen_h - win_h) // 2
+        root.geometry(f"{win_w}x{win_h}+{x}+{y}")
+
+        root.mainloop()
+        return
     else:  # "failure"
         text = f"처리에 실패했습니다:\n\n{error}"
         body = "\n".join(f"- {w}" for w in (warnings or []))
