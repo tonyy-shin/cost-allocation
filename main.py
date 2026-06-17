@@ -72,7 +72,7 @@ def _load_inputs(
     if validation_errors:
         for msg in validation_errors:
             notes.append(msg)
-        raise PipelineAborted("필수 컬럼 누락으로 실행이 중단되었습니다.")
+        raise PipelineAborted("입력 파일 검증에 실패했습니다.")
 
     unknown_ccs = validate_cycle_cc(cycle_df, cc_df)
     if unknown_ccs:
