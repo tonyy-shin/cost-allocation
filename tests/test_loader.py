@@ -79,6 +79,21 @@ def test_parse_numeric_plain_number_unchanged():
     assert out.iloc[0] == 3000000.0
 
 
+def test_parse_numeric_accounting_parentheses():
+    out = parse_numeric_column(pd.Series(["(5,000,000)"]))
+    assert out.iloc[0] == pytest.approx(-5000000.0)
+
+
+def test_parse_numeric_unicode_minus():
+    out = parse_numeric_column(pd.Series(["−5000000"]))
+    assert out.iloc[0] == pytest.approx(-5000000.0)
+
+
+def test_parse_numeric_trailing_minus():
+    out = parse_numeric_column(pd.Series(["5000000-"]))
+    assert out.iloc[0] == pytest.approx(-5000000.0)
+
+
 def test_parse_numeric_warns_on_non_numeric_value():
     # "abc" cannot be coerced, so it becomes NaN and a warning fires.
     with pytest.warns(UserWarning, match="변환되지 않은 값"):

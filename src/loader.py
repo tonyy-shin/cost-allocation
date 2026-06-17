@@ -177,7 +177,19 @@ def parse_numeric_column(series: pd.Series, filename: str = "") -> pd.Series:
     pd.Series
         float64 column. Unparseable entries are NaN.
     """
-    cleaned = series.astype(str).str.replace(",", "", regex=False).str.strip()
+    cleaned = (
+        series.astype(str)
+        .str.strip()
+        # Unicode minus (U+2212) → ASCII hyphen
+        .str.replace("−", "-", regex=False)
+        # Accounting parentheses: (5,000,000) → -5000000
+        .str.replace(r"^\(([0-9,]+)\)$", r"-\1", regex=True)
+        # Trailing minus: 5000000- → -5000000
+        .str.replace(r"^([0-9,]+)-$", r"-\1", regex=True)
+        # Remove thousands separators
+        .str.replace(",", "", regex=False)
+        .str.strip()
+    )
     numeric = pd.to_numeric(cleaned, errors="coerce")
     _warn_lost_values(
         series,
