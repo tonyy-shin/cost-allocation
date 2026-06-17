@@ -419,6 +419,59 @@ def build_category_dtypes(
     }
 
 
+def _cast_to_category(
+    series: pd.Series,
+    dtype: CategoricalDtype,
+    *,
+    reference: str,
+) -> pd.Series:
+    """Cast a code column to a shared CategoricalDtype, reporting unknown codes.
+
+    A value absent from the dtype's categories cannot be represented and becomes
+    NaN. Since pandas 3.0 the Categorical constructor warns (and a future version
+    will raise) when such non-null values are passed, so unknowns are masked to
+    NaN before casting to avoid the deprecation. Genuine unknowns — a code in one
+    sheet that does not exist in the sheet defining the categories — are surfaced
+    by name so the cross-sheet mismatch is visible instead of silently dropped.
+    Empty and missing cells are excluded so they do not generate noise.
+
+    Parameters
+    ----------
+    series : pd.Series
+        str-normalized code column.
+    dtype : CategoricalDtype
+        Shared target dtype whose categories define the valid codes.
+    reference : str
+        Human-readable name of the sheet that defines the valid categories,
+        used in the warning message.
+
+    Returns
+    -------
+    pd.Series
+        Categorical column; unknown and empty values become NaN.
+    """
+    in_category = series.isin(dtype.categories)
+
+    before = series.astype(str).str.strip()
+    unknown_mask = (
+        ~in_category
+        & before.notna()
+        & (before != "")
+        & (before != "nan")
+    )
+    unknown_values = series[unknown_mask].astype(str).unique().tolist()
+    if unknown_values:
+        col_name = series.name if series.name is not None else "코드"
+        warnings.warn(
+            f"{col_name} 컬럼에 {reference}에 없는 코드가 있습니다: "
+            f"{unknown_values} 해당 행은 매핑에서 제외됩니다."
+        )
+
+    # Mask out-of-category values to NaN before casting so the categorical
+    # constructor never receives a non-null value outside its categories.
+    return series.where(in_category).astype(dtype)
+
+
 def apply_category_dtypes(
     cc_df: pd.DataFrame,
     coa_df: pd.DataFrame,
@@ -427,6 +480,11 @@ def apply_category_dtypes(
     dtypes: dict[str, CategoricalDtype],
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Apply shared CategoricalDtype objects.
+
+    Code columns whose categories are derived from another sheet (a CC in the
+    amount sheet that is absent from the CC master, or a base COA in the mapping
+    sheet absent from the amount sheet) are cast via _cast_to_category, which
+    reports the mismatched codes and maps them to NaN.
 
     Parameters
     ----------
@@ -440,11 +498,17 @@ def apply_category_dtypes(
     cc_df = cc_df.assign(CC=cc_df["CC"].astype(dtypes["cc"]))
     coa_df = coa_df.assign(
         COA=coa_df["COA"].astype(dtypes["coa"]),
-        **{"Cost Center": coa_df["Cost Center"].astype(dtypes["cc"])},
+        **{
+            "Cost Center": _cast_to_category(
+                coa_df["Cost Center"], dtypes["cc"], reference="CC 마스터"
+            )
+        },
     )
     mapping_df = mapping_df.assign(
         전기COA=mapping_df["전기COA"].astype(dtypes["e_coa"]),
-        기존COA=mapping_df["기존COA"].astype(dtypes["coa"]),
+        기존COA=_cast_to_category(
+            mapping_df["기존COA"], dtypes["coa"], reference="공통비 금액 시트"
+        ),
     )
     return cc_df, coa_df, mapping_df
 
