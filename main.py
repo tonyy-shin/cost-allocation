@@ -19,7 +19,7 @@ from src.loader import (
     load_cycle,
     load_mapping,
 )
-from src.output import build_result, save_result
+from src.output import build_result, save_result, save_snapshots
 from src.prepare import (
     aggregate_detail,
     aggregate_for_allocation,
@@ -157,6 +157,7 @@ def main() -> None:
             n_cycles = cycle_df["차수"].nunique()
             result = build_result(common_decomposed, df_direct, n_cycles)
             out_path = save_result(result, paths["output_dir"])
+            save_snapshots(result, paths["output_dir"], n_cycles)
 
         messages = notes + [str(w.message) for w in caught]
 
