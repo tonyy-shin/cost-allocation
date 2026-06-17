@@ -7,9 +7,8 @@ import warnings
 import pandas as pd
 
 from src.allocation import (
-    aggregate_received_by_cycle,
     build_pivot_matrix,
-    decompose_to_original_coa,
+    decompose_sender_to_original_coa,
     run_allocation_loop,
 )
 from src.loader import (
@@ -19,7 +18,7 @@ from src.loader import (
     load_cycle,
     load_mapping,
 )
-from src.output import build_result, save_result, save_snapshots
+from src.output import build_result, save_result
 from src.prepare import (
     aggregate_detail,
     aggregate_for_allocation,
@@ -118,13 +117,13 @@ def _run_allocation(
 ) -> pd.DataFrame:
     """Steps 7–9: build pivot, run sequential allocation, decompose to base COA.
 
-    Returns common_decomposed DataFrame.
+    Returns the sender-side decomposition: one row per
+    (차수, 전기COA, 기존COA, Sender CC) describing each sender's distribution.
     """
     pivot = build_pivot_matrix(df_5b, cc_list)
-    _, delta_by_cycle = run_allocation_loop(pivot, cycle_df)
-    received_by_cycle = aggregate_received_by_cycle(delta_by_cycle)
-    
-    return decompose_to_original_coa(received_by_cycle, df_ratio)
+    _, _, sender_delta_by_cycle = run_allocation_loop(pivot, cycle_df)
+
+    return decompose_sender_to_original_coa(sender_delta_by_cycle, df_ratio)
 
 
 
@@ -147,17 +146,15 @@ def main() -> None:
             warnings.simplefilter("always")
 
             coa_df, mapping_df, cycle_df = _load_inputs(paths, notes)
-            df_direct, df_5b, df_ratio = _prepare_costs(
-                coa_df, mapping_df, cycle_df
-            )
+            # Direct costs are not part of the sender-keyed result, so the
+            # df_direct from _prepare_costs is intentionally discarded.
+            _, df_5b, df_ratio = _prepare_costs(coa_df, mapping_df, cycle_df)
 
             cc_list = coa_df["Cost Center"].unique().tolist()
-            common_decomposed = _run_allocation(df_5b, df_ratio, cc_list, cycle_df)
+            sender_decomposed = _run_allocation(df_5b, df_ratio, cc_list, cycle_df)
 
-            n_cycles = cycle_df["차수"].nunique()
-            result = build_result(common_decomposed, df_direct, n_cycles)
+            result = build_result(sender_decomposed)
             out_path = save_result(result, paths["output_dir"])
-            save_snapshots(result, paths["output_dir"], n_cycles)
 
         messages = notes + [str(w.message) for w in caught]
 

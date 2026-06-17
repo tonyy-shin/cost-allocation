@@ -7,7 +7,8 @@ import pytest
 
 from src.allocation import (
     aggregate_received_by_cycle, alloc_col, build_pivot_matrix,
-    decompose_to_original_coa, run_allocation_loop,
+    decompose_sender_to_original_coa, decompose_to_original_coa,
+    run_allocation_loop,
 )
 
 
@@ -35,7 +36,7 @@ def test_run_allocation_loop_senders_balance_to_zero(pipeline_outputs, loaded_in
     pivot = pipeline_outputs["pivot"]
     cycle_df = loaded_inputs["cycle_df"]
     with pytest.warns() as record:
-        final_pivot, _ = run_allocation_loop(pivot, cycle_df)
+        final_pivot, _, _ = run_allocation_loop(pivot, cycle_df)
     assert not any("0이 되지 않" in str(w.message) for w in record)
     assert final_pivot["2001"].sum() == pytest.approx(0.0)
 
@@ -77,6 +78,41 @@ def test_conservation_decomposed_equals_sender_common(pipeline_outputs, loaded_i
     decomposed_total = decomposed[_alloc_cols(decomposed)].values.sum()
     sender_common = df_5b[df_5b["Cost Center"].isin(senders)]["Amounts"].sum()
     assert decomposed_total == pytest.approx(sender_common)
+
+
+def test_decompose_sender_applies_ratio_and_restores_coa():
+    # A single sender sends 1,000 of transfer COA E1, which decomposes back to
+    # base COAs 100/200 by their 비중 (0.3 / 0.7).
+    sender_delta_by_cycle = {
+        1: pd.DataFrame(
+            {"전기COA": ["E1"], "Sender CC": ["S1"], "Amounts": [1000.0]}
+        )
+    }
+    df_ratio = pd.DataFrame(
+        {"전기COA": ["E1", "E1"], "기존COA": ["100", "200"], "비중": [0.3, 0.7]}
+    )
+    out = decompose_sender_to_original_coa(sender_delta_by_cycle, df_ratio)
+
+    assert list(out.columns) == ["차수", "전기COA", "기존COA", "Sender CC", "배분금액"]
+    # Sorted by 차수 → 전기COA → 기존COA → Sender CC.
+    assert list(out["기존COA"]) == ["100", "200"]
+    amt = dict(zip(out["기존COA"], out["배분금액"]))
+    assert amt["100"] == pytest.approx(300.0)
+    assert amt["200"] == pytest.approx(700.0)
+
+
+def test_decompose_sender_conserves_sent_total(pipeline_outputs):
+    # Decomposition only splits each sent amount across base COAs, so the grand
+    # total of 배분금액 must equal the total amount the senders pushed out.
+    sender_delta_by_cycle = pipeline_outputs["sender_delta_by_cycle"]
+    sender_decomposed = pipeline_outputs["sender_decomposed"]
+
+    sent_total = sum(
+        df["Amounts"].sum()
+        for df in sender_delta_by_cycle.values()
+        if not df.empty
+    )
+    assert sender_decomposed["배분금액"].sum() == pytest.approx(sent_total)
 
 
 # WARNING cases

@@ -28,7 +28,8 @@ from src.prepare import (  # noqa: E402
 )
 from src.allocation import (  # noqa: E402
     aggregate_received_by_cycle, build_pivot_matrix,
-    decompose_to_original_coa, run_allocation_loop,
+    decompose_sender_to_original_coa, decompose_to_original_coa,
+    run_allocation_loop,
 )
 from src.output import build_result  # noqa: E402
 
@@ -86,7 +87,8 @@ def pipeline_outputs(loaded_inputs) -> dict:
     -------
     dict with keys:
         df_direct, df_5a, df_5b, df_ratio, pivot, delta_by_cycle,
-        received_by_cycle, decomposed, result
+        sender_delta_by_cycle, received_by_cycle, decomposed,
+        sender_decomposed, result
     """
     coa_df = loaded_inputs["coa_df"]
     mapping_df = loaded_inputs["mapping_df"]
@@ -101,12 +103,19 @@ def pipeline_outputs(loaded_inputs) -> dict:
     df_ratio = calculate_coa_ratio(df_5a)
 
     pivot = build_pivot_matrix(df_5b, cc_list)
-    _, delta_by_cycle = run_allocation_loop(pivot, cycle_df)
+    _, delta_by_cycle, sender_delta_by_cycle = run_allocation_loop(pivot, cycle_df)
+
+    # Receiver-side decomposition. No longer feeds `result` (the production
+    # pipeline dropped it); kept here solely to supply the receiver-side tests
+    # in test_allocation.py (received_by_cycle / decomposed assertions).
     received_by_cycle = aggregate_received_by_cycle(delta_by_cycle)
     decomposed = decompose_to_original_coa(received_by_cycle, df_ratio)
 
-    n_cycles = cycle_df["차수"].nunique()
-    result = build_result(decomposed, df_direct, n_cycles)
+    # Sender-side decomposition: the basis for the final result grid.
+    sender_decomposed = decompose_sender_to_original_coa(
+        sender_delta_by_cycle, df_ratio
+    )
+    result = build_result(sender_decomposed)
 
     return {
         "df_direct": df_direct,
@@ -115,7 +124,9 @@ def pipeline_outputs(loaded_inputs) -> dict:
         "df_ratio": df_ratio,
         "pivot": pivot,
         "delta_by_cycle": delta_by_cycle,
+        "sender_delta_by_cycle": sender_delta_by_cycle,
         "received_by_cycle": received_by_cycle,
         "decomposed": decomposed,
+        "sender_decomposed": sender_decomposed,
         "result": result,
     }

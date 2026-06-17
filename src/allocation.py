@@ -75,9 +75,11 @@ def run_allocation_loop(
 
     Returns
     -------
-        final_pivot    : Pivot state after allocations.
-        delta_by_cycle : {cycle: DataFrame(전기COA, Receiver CC, Amounts)}
-                         Amount received by each Receiver CC per cycle.
+        final_pivot           : Pivot state after allocations.
+        delta_by_cycle        : {cycle: DataFrame(전기COA, Receiver CC, Amounts)}
+                                Amount received by each Receiver CC per cycle.
+        sender_delta_by_cycle : {cycle: DataFrame(전기COA, Sender CC, Amounts)}
+                                Amount sent by each Sender CC per cycle.
     """
     pivot = pivot.copy().astype(float)
     # Per-CC common-cost balance before any allocation. A CC's own original
@@ -88,12 +90,14 @@ def run_allocation_loop(
     # accumulate balance during the loop.
     initial_cc_balance = pivot.sum(axis=0)
     delta_by_cycle = {}
+    sender_delta_by_cycle = {}
     # Collects one concrete message per (cycle, sender) whose distribution
     # ratios do not sum to 100%, so the warning names exactly which entry to fix.
     unbalanced = []
 
     for cycle_num, cycle_rows in cycle_df.groupby("차수", sort=True):
         deltas = []
+        sender_deltas = []
         for sender, sender_rows in cycle_rows.groupby("Sender CC", sort=False):
             if sender not in pivot.columns:
                 continue
@@ -111,6 +115,14 @@ def run_allocation_loop(
                 tmp["Receiver CC"] = receiver
                 deltas.append(tmp)
             pivot[sender] -= total_sent
+
+            # Collect what this sender pushed out this cycle, keyed by transfer
+            # COA, mirroring the receiver-side `deltas` collection above.
+            tmp_sender = total_sent.reset_index()
+            tmp_sender.columns = ["전기COA", "Amounts"]
+            tmp_sender["Sender CC"] = sender
+            sender_deltas.append(tmp_sender)
+
             # Check residual the moment this sender finishes distributing,
             # before a later cycle can credit it back as a receiver.
             if (sender_bal - total_sent).abs().max() > 1e-6 * max(sender_bal.abs().max(), 1.0):
@@ -123,6 +135,10 @@ def run_allocation_loop(
         delta_by_cycle[cycle_num] = (
             pd.concat(deltas, ignore_index=True) if deltas
             else pd.DataFrame(columns=["전기COA", "Receiver CC", "Amounts"])
+        )
+        sender_delta_by_cycle[cycle_num] = (
+            pd.concat(sender_deltas, ignore_index=True) if sender_deltas
+            else pd.DataFrame(columns=["전기COA", "Sender CC", "Amounts"])
         )
 
     if unbalanced:
@@ -142,7 +158,7 @@ def run_allocation_loop(
                 f"cycle.csv에 Sender로 추가하거나 배부 비율 합계를 확인하세요."
             )
 
-    return pivot, delta_by_cycle
+    return pivot, delta_by_cycle, sender_delta_by_cycle
 
 
 # Step 8: Aggregate received amounts by cycle
@@ -248,3 +264,61 @@ def decompose_to_original_coa(
 
 
     return result
+
+
+# Sender-side decomposition: restore base COA granularity for sent amounts
+
+
+def decompose_sender_to_original_coa(
+    sender_delta_by_cycle: dict[int, pd.DataFrame],
+    df_ratio: pd.DataFrame,
+) -> pd.DataFrame:
+    """Apply base COA ratios to per-cycle sent amounts, keyed by Sender CC.
+
+    The sender-side mirror of decompose_to_original_coa. Instead of per-cycle
+    allocation columns, the cycle becomes a row dimension and the output is a
+    long-format frame describing how much each Sender CC pushed out, decomposed
+    back to base COA via the transfer COA's composition (비중).
+
+    Parameters
+    ----------
+    sender_delta_by_cycle : run_allocation_loop's third return value.
+                            {cycle: DataFrame(전기COA, Sender CC, Amounts)}.
+    df_ratio              : calculate_coa_ratio result. Columns: 전기COA, 기존COA, 비중.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns: 차수, 전기COA, 기존COA, Sender CC, 배분금액.
+        Sorted by 차수 → 전기COA → 기존COA → Sender CC.
+    """
+    all_rows = []
+    for cycle_num, sent_df in sender_delta_by_cycle.items():
+        if sent_df.empty:
+            continue
+        merged = sent_df.merge(df_ratio, on="전기COA", how="left")
+        merged["배분금액"] = merged["Amounts"] * merged["비중"]
+        merged["차수"] = cycle_num
+        all_rows.append(
+            merged[["차수", "전기COA", "기존COA", "Sender CC", "배분금액"]]
+        )
+
+    if not all_rows:
+        return pd.DataFrame(
+            columns=["차수", "전기COA", "기존COA", "Sender CC", "배분금액"]
+        )
+
+    combined = pd.concat(all_rows, ignore_index=True)
+    result = (
+        combined
+        .groupby(["차수", "전기COA", "기존COA", "Sender CC"], observed=True)
+        ["배분금액"].sum()
+        .reset_index()
+    )
+    # total_sent spans the full pivot index, so a sender carries 0 for transfer
+    # COAs it never held. Drop those zero rows so the result lists only the
+    # transfer COAs the sender actually distributed; the total is unaffected.
+    result = result[result["배분금액"] != 0]
+    return result.sort_values(
+        ["차수", "전기COA", "기존COA", "Sender CC"]
+    ).reset_index(drop=True)

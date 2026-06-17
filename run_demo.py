@@ -10,10 +10,9 @@ from src.prepare import (
     assign_transfer_coa, calculate_coa_ratio, separate_common_direct,
 )
 from src.allocation import (
-    aggregate_received_by_cycle, build_pivot_matrix,
-    decompose_to_original_coa, run_allocation_loop,
+    build_pivot_matrix, decompose_sender_to_original_coa, run_allocation_loop,
 )
-from src.output import build_result, save_result, save_snapshots
+from src.output import build_result, save_result
 
 TEST_PATHS = {
     "coa_amount": Path("sample_data/coa_amount.csv"),
@@ -35,7 +34,7 @@ raw_coa_df = coa_df
 
 # Steps 3-6
 enriched = assign_transfer_coa(coa_df, mapping_df)
-df_common, df_direct = separate_common_direct(enriched)
+df_common, _ = separate_common_direct(enriched)
 df_5a  = aggregate_detail(df_common)
 df_5b  = aggregate_for_allocation(df_5a)
 df_ratio = calculate_coa_ratio(df_5a)
@@ -43,17 +42,12 @@ df_ratio = calculate_coa_ratio(df_5a)
 # Steps 7-9
 cc_list = coa_df["Cost Center"].unique().tolist()
 pivot = build_pivot_matrix(df_5b, cc_list)
-_, delta_by_cycle = run_allocation_loop(pivot, cycle_df)
-received_by_cycle = aggregate_received_by_cycle(delta_by_cycle)
-common_decomposed = decompose_to_original_coa(received_by_cycle, df_ratio)
+_, _, sender_delta_by_cycle = run_allocation_loop(pivot, cycle_df)
+sender_decomposed = decompose_sender_to_original_coa(sender_delta_by_cycle, df_ratio)
 
 # Steps 10-12
-n_cycles = cycle_df["차수"].nunique()
-result = build_result(common_decomposed, df_direct, n_cycles)
+result = build_result(sender_decomposed)
 out_path = save_result(result, TEST_PATHS["output_dir"])
-snapshot_paths = save_snapshots(result, TEST_PATHS["output_dir"], n_cycles)
 
 print(result.to_string())
 print(f"\nSaved: {out_path}")
-for p in snapshot_paths:
-    print(f"Saved: {p}")

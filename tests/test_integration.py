@@ -6,8 +6,7 @@ import warnings
 import pytest
 
 from src.allocation import (
-    aggregate_received_by_cycle, build_pivot_matrix,
-    decompose_to_original_coa, run_allocation_loop,
+    build_pivot_matrix, decompose_sender_to_original_coa, run_allocation_loop,
 )
 from src.output import build_result
 from src.prepare import (
@@ -16,15 +15,13 @@ from src.prepare import (
 )
 
 
-def _alloc_cols(df):
-    return [c for c in df.columns if "배분금액" in c]
-
-
 def test_end_to_end_conservation(pipeline_outputs, loaded_inputs):
     result = pipeline_outputs["result"]
     df_direct = pipeline_outputs["df_direct"]
 
-    allocated = result[_alloc_cols(result)].to_numpy().sum()
+    # The sender-keyed result holds only distributed common cost; its 배분금액
+    # total equals the amount the senders pushed out (== receiver-side total).
+    allocated = result["배분금액"].sum()
     direct_total = df_direct["Amounts"].sum()
     total_in = loaded_inputs["raw_coa_df"]["Amounts"].sum()
 
@@ -39,9 +36,10 @@ def test_end_to_end_conservation(pipeline_outputs, loaded_inputs):
 
 
 def test_result_row_count(pipeline_outputs):
-    # Rows = the computed (전기COA, 기존COA, CC) groups, not the master's 15 pairs.
-    # Fixed expected count (independent oracle); update when sample_data changes.
-    assert len(pipeline_outputs["result"]) == 13
+    # Rows = the (차수, 전기COA, 기존COA, Sender CC) combinations the senders
+    # actually distributed. Fixed expected count (independent oracle); update
+    # when sample_data changes.
+    assert len(pipeline_outputs["result"]) == 4
 
 
 def test_only_expected_residual_warnings_on_happy_path(loaded_inputs):
@@ -57,16 +55,17 @@ def test_only_expected_residual_warnings_on_happy_path(loaded_inputs):
         warnings.simplefilter("always")
 
         enriched = assign_transfer_coa(coa_df, mapping_df)
-        df_common, df_direct = separate_common_direct(enriched)
+        df_common, _ = separate_common_direct(enriched)
         df_5a = aggregate_detail(df_common)
         df_5b = aggregate_for_allocation(df_5a)
         df_ratio = calculate_coa_ratio(df_5a)
 
         pivot = build_pivot_matrix(df_5b, cc_list)
-        _, delta_by_cycle = run_allocation_loop(pivot, cycle_df)
-        received_by_cycle = aggregate_received_by_cycle(delta_by_cycle)
-        decomposed = decompose_to_original_coa(received_by_cycle, df_ratio)
-        build_result(decomposed, df_direct, cycle_df["차수"].nunique())
+        _, _, sender_delta_by_cycle = run_allocation_loop(pivot, cycle_df)
+        sender_decomposed = decompose_sender_to_original_coa(
+            sender_delta_by_cycle, df_ratio
+        )
+        build_result(sender_decomposed)
 
     residual_ccs = {cc for cc, _amt in validate_sender_coverage(df_5b, cycle_df)}
     unexpected = [
