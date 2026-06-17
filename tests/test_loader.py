@@ -201,11 +201,13 @@ def test_apply_category_warns_on_cost_center_absent_from_master():
     assert pd.isna(coa_out["Cost Center"].iloc[0])
 
 
-def test_apply_category_warns_on_base_coa_absent_from_amount_sheet():
-    # 기존COA 7777 is not in the amount sheet's COA, so it is reported and NaN.
+def test_apply_category_silent_on_base_coa_absent_from_amount_sheet():
+    # The mapping sheet legitimately lists base COAs absent from this period's
+    # amount sheet, so 기존COA 7777 is masked to NaN WITHOUT any warning.
     cc_df, coa_df, mapping_df = _category_frames(기존coa="7777")
     dtypes = build_category_dtypes(cc_df, coa_df, mapping_df)
-    with pytest.warns(UserWarning, match="공통비 금액 시트에 없는 코드"):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
         _, _, mapping_out = apply_category_dtypes(
             cc_df, coa_df, mapping_df, dtypes=dtypes
         )
