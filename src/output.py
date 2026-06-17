@@ -7,16 +7,15 @@ import pandas as pd
 from src.allocation import TOTAL_COL, alloc_col, parse_alloc_col
 
 
-# Steps 10–11: Build final result over the master's (base COA, CC) pairs
+# Steps 10–11: Build final result over the computed (base COA, CC) pairs
 
 
 def build_result(
     common_decomposed: pd.DataFrame,
     direct_df: pd.DataFrame,
-    coa_df: pd.DataFrame,
     n_cycles: int,
 ) -> pd.DataFrame:
-    """Combine common and direct costs, then reindex onto the master's (COA, CC) pairs.
+    """Combine common and direct costs into the final result grid.
 
     Covers Steps 10 and 11.
 
@@ -26,13 +25,12 @@ def build_result(
         All allocation columns are 0; 배부합계 = original Amounts.
 
     Grid (Step 11):
-        Row range  : the (기존COA, Cost Center) pairs that actually exist in the
-                     COA·CC master (coa_df), not the full COA x CC product. The
-                     master is assumed to enumerate every valid pair, so every
-                     allocated (base COA, receiver CC) pair is covered and no
-                     received amount is dropped on reindex.
-        Implementation: MultiIndex of the master's unique pairs + reindex(fill_value=0).
-        Assert (기존COA, CC) uniqueness before reindex to catch silent fill errors.
+        Row range  : the (전기COA, 기존COA, Cost Center) groups that actually appear
+                     in the computed result — the union of the allocated common-cost
+                     rows and the direct-cost rows. The result is NOT reindexed onto
+                     the COA·CC master, so master pairs with neither an allocation nor
+                     a direct cost do not appear, and no computed row can be dropped.
+        Implementation: concat(common, direct) then groupby the three key columns.
 
     Output column order:
         전기COA, 기존COA, 코스트센터, 1차배분금액, ..., n차배분금액, 배부합계
@@ -41,15 +39,13 @@ def build_result(
     ----------
     common_decomposed : decompose_to_original_coa result.
     direct_df         : df_direct from separate_common_direct.
-    coa_df            : COA·CC master DataFrame (defines the (COA, CC) pair range).
     n_cycles          : Number of allocation cycles (determines allocation column count).
 
     Returns
     -------
     pd.DataFrame
-        All columns as described above.
-        Every (base COA, CC) pair present in the master appears; values absent
-        from the allocation are filled with 0.
+        All columns as described above. One row per computed
+        (전기COA, 기존COA, Cost Center) group; no master-only zero-filled rows.
     """
     alloc_cols = [alloc_col(i) for i in range(1, n_cycles + 1)]
     numeric_cols = alloc_cols + [TOTAL_COL]
@@ -70,7 +66,8 @@ def build_result(
     direct[TOTAL_COL] = direct["Amounts"]
     direct = direct[["전기COA", "기존COA", "Cost Center"] + numeric_cols]
 
-    # Combine and group
+    # Combine and group: the result grid is the computed (전기COA, 기존COA, CC)
+    # groups themselves — no reindex onto the master, so nothing is added or dropped.
     combined = pd.concat([common, direct], ignore_index=True)
     combined = (
         combined
@@ -80,35 +77,8 @@ def build_result(
         .reset_index()
     )
 
-    # Derive 기존COA → 전기COA lookup before reindex loses the mapping
-    coa_to_ecoa = (
-        combined[["기존COA", "전기COA"]]
-        .drop_duplicates("기존COA")
-        .set_index("기존COA")["전기COA"]
-        .astype(str)
-    )
-
-    # Reindex onto the master's actual (base COA, CC) pairs (no product expansion).
-    pairs = coa_df[["COA", "Cost Center"]].astype(str).drop_duplicates()
-    full_index = pd.MultiIndex.from_arrays(
-        [pairs["COA"], pairs["Cost Center"]], names=["기존COA", "Cost Center"]
-    )
-
-    assert not combined.duplicated(["기존COA", "Cost Center"]).any(), \
-        "Duplicate (기존COA, Cost Center) pairs found before reindex"
-
-    result = (
-        combined
-        .set_index(["기존COA", "Cost Center"])[numeric_cols]
-        .reindex(full_index, fill_value=0)
-        .reset_index()
-    )
-
-    # Restore 전기COA for all rows
-    result["전기COA"] = result["기존COA"].map(coa_to_ecoa).fillna("")
-
     # Final column order and rename
-    result = result.rename(columns={"Cost Center": "코스트센터"})
+    result = combined.rename(columns={"Cost Center": "코스트센터"})
     return result[["전기COA", "기존COA", "코스트센터"] + numeric_cols]
 
 

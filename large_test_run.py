@@ -153,7 +153,7 @@ def main() -> None:
         # --- Stage D: result assembly ---
         t0 = time.perf_counter()
         n_cycles = cycle_df["차수"].nunique()
-        result = build_result(common_decomposed, df_direct, raw_coa_df, n_cycles)
+        result = build_result(common_decomposed, df_direct, n_cycles)
         timings["4. 결과 조립"] = time.perf_counter() - t0
 
         # --- Stage E: save ---
@@ -227,8 +227,21 @@ def main() -> None:
     print("=" * 70)
     print("■ 3. 결과 규모")
     print("=" * 70)
-    expected_pairs = raw_coa_df.drop_duplicates(["COA", "Cost Center"]).shape[0]
-    print(f"  result.csv 행 수      : {n_rows:,}  (기대 마스터 실재 쌍 {expected_pairs:,})")
+    # The grid is now the computed result itself (common + direct), not the master.
+    _common_pairs = common_decomposed[
+        ["전기COA", "기존COA", "Cost Center"]
+    ].astype(str)
+    _direct_pairs = (
+        df_direct[["전기COA", "COA", "Cost Center"]]
+        .astype(str)
+        .rename(columns={"COA": "기존COA"})
+    )
+    expected_pairs = (
+        pd.concat([_common_pairs, _direct_pairs], ignore_index=True)
+        .drop_duplicates(["전기COA", "기존COA", "Cost Center"])
+        .shape[0]
+    )
+    print(f"  result.csv 행 수      : {n_rows:,}  (기대 계산 결과 쌍 {expected_pairs:,})")
     print(f"  result.csv 컬럼       : {list(result.columns)}")
     print(f"  파일 크기             : {out_size:,} bytes ({out_size/1024/1024:.2f} MB)")
 
@@ -278,10 +291,10 @@ def main() -> None:
     print(f"  [검증1-직접비] result직접비 == 직접비총액 : diff={diff_dir:,.4f} "
           f"-> {'PASS' if diff_dir <= tol else 'FAIL'}")
 
-    # Check 2: grid shape — rows equal the master's actual (COA, CC) pairs.
+    # Check 2: grid shape — rows equal the computed (전기COA, 기존COA, CC) pairs.
     ok_grid = (n_rows == expected_pairs)
-    n_unique = result.drop_duplicates(["기존COA", "코스트센터"]).shape[0]
-    print(f"  [검증2-그리드] 행수==마스터쌍({expected_pairs:,}) : {n_rows:,} -> "
+    n_unique = result.drop_duplicates(["전기COA", "기존COA", "코스트센터"]).shape[0]
+    print(f"  [검증2-그리드] 행수==계산결과쌍({expected_pairs:,}) : {n_rows:,} -> "
           f"{'PASS' if ok_grid else 'FAIL'}  (unique 조합 {n_unique:,})")
 
     # Check 3: sender residual -> 0
