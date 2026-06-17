@@ -8,7 +8,8 @@ import pandas as pd
 import pytest
 
 from src.loader import (
-    _validate_local_path, apply_category_dtypes, build_category_dtypes,
+    _normalize_cycle_ratios, _validate_local_path,
+    apply_category_dtypes, build_category_dtypes,
     load_cc, load_coa_amount, load_cycle, load_mapping,
     normalize_code_column, parse_numeric_column, parse_percent_column,
 )
@@ -129,6 +130,81 @@ def test_parse_percent_warns_on_value_above_one_without_sign():
     assert out.iloc[0] == pytest.approx(30.0)
 
 
+# CYCLE RATIO VALIDATION
+#
+# _normalize_cycle_ratios inspects each (차수, Sender CC) group's '%' sum:
+#   < 1e-9 from 1.0  → OK (no action)
+#   1e-9..1e-4 away  → float precision, auto-normalize + warn
+#   ≥ 1e-4 away      → data error, collect all offenders, raise ValueError
+
+
+def _cycle_df(rows) -> pd.DataFrame:
+    """Build a minimal cycle DataFrame for _normalize_cycle_ratios tests."""
+    return pd.DataFrame(rows, columns=["차수", "Sender CC", "Receiver CC", "%"])
+
+
+def test_normalize_cycle_ratios_exact_sum_no_warning():
+    df = _cycle_df([(1, "A", "B", 0.3), (1, "A", "C", 0.7)])
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        result = _normalize_cycle_ratios(df)
+    assert result["%"].tolist() == pytest.approx([0.3, 0.7])
+
+
+def test_normalize_cycle_ratios_float_precision_auto_normalizes():
+    # 5e-9 is in [1e-9, 1e-4): triggers auto-normalization with a UserWarning.
+    eps = 5e-9
+    df = _cycle_df([(1, "A", "B", 0.5), (1, "A", "C", 0.5 + eps)])
+    with pytest.warns(UserWarning, match="자동 정규화"):
+        result = _normalize_cycle_ratios(df)
+    assert result["%"].sum() == pytest.approx(1.0)
+
+
+def test_normalize_cycle_ratios_data_error_raises():
+    # sum ≈ 1.016 (diff ≥ 1e-4): data error, must raise.
+    df = _cycle_df([(1, "A", "B", 0.6), (1, "A", "C", 0.416)])
+    with pytest.raises(ValueError, match="직접 수정"):
+        _normalize_cycle_ratios(df)
+
+
+def test_normalize_cycle_ratios_multiple_errors_all_reported():
+    # Two separate groups each with data errors: both must appear in the message.
+    df = _cycle_df([
+        (1, "A", "B", 1.016),
+        (2, "X", "Y", 0.800),
+    ])
+    with pytest.raises(ValueError) as exc_info:
+        _normalize_cycle_ratios(df)
+    msg = str(exc_info.value)
+    assert "차수=1" in msg and "A" in msg
+    assert "차수=2" in msg and "X" in msg
+
+
+def test_normalize_cycle_ratios_mixed_raises_without_normalizing():
+    # Float-precision group + data-error group: ValueError is raised and the
+    # float-precision group is never normalized (no '자동 정규화' warning emitted).
+    eps = 5e-9
+    df = _cycle_df([
+        (1, "A", "B", 0.5),
+        (1, "A", "C", 0.5 + eps),
+        (2, "X", "Y", 1.016),
+    ])
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with pytest.raises(ValueError, match="직접 수정"):
+            _normalize_cycle_ratios(df)
+    assert not any("자동 정규화" in str(w.message) for w in caught)
+
+
+def test_normalize_cycle_ratios_zero_sum_skipped():
+    # A group whose ratios are all 0 has sum=0; it is skipped without error or warning.
+    df = _cycle_df([(1, "A", "B", 0.0), (1, "A", "C", 0.0)])
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        result = _normalize_cycle_ratios(df)
+    assert result["%"].tolist() == pytest.approx([0.0, 0.0])
+
+
 # ENCODING cases
 #
 # Excel "CSV (comma delimited)" on Korean Windows saves files in EUC-KR, which
@@ -147,9 +223,10 @@ def test_load_mapping_reads_euc_kr(tmp_path):
 
 def test_load_cycle_reads_euc_kr(tmp_path):
     p = tmp_path / "cycle.csv"
-    # Korean header 차수 saved as EUC-KR.
+    # Korean header 차수 saved as EUC-KR. Single receiver gets 100% so the
+    # ratio-sum check in _normalize_cycle_ratios passes without error.
     p.write_text(
-        "차수,Sender CC,Receiver CC,%\n1,1001,1002,0.3\n", encoding="euc-kr"
+        "차수,Sender CC,Receiver CC,%\n1,1001,1002,1.0\n", encoding="euc-kr"
     )
     df = load_cycle(p)
     assert {"차수", "Sender CC", "Receiver CC", "%"} <= set(df.columns)

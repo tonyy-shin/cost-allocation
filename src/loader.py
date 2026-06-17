@@ -252,6 +252,69 @@ def parse_percent_column(series: pd.Series, filename: str = "") -> pd.Series:
     return result
 
 
+def _normalize_cycle_ratios(df: pd.DataFrame) -> pd.DataFrame:
+    """Validate and auto-normalize '%' sums for each (차수, Sender CC) group.
+
+    Three tolerance tiers applied after parse_percent_column:
+
+    - abs(sum - 1.0) < 1e-9         : OK — no action
+    - 1e-9 ≤ abs(sum - 1.0) < 1e-4  : float precision — auto-normalize + warn
+    - abs(sum - 1.0) ≥ 1e-4         : data error — all offending groups are
+                                       collected before a single ValueError is raised
+
+    Groups whose '%' sum is 0 or NaN are skipped without error.
+    When any data-error group exists, no float-precision group is normalized
+    (the ValueError is raised before any modification is made).
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        cycle.csv DataFrame with '%' already parsed to decimal ratios.
+
+    Returns
+    -------
+    pd.DataFrame
+        Copy of df with '%' normalized for float-precision groups.
+
+    Raises
+    ------
+    ValueError
+        If one or more (차수, Sender CC) groups deviate from 1.0 by ≥ 1e-4.
+        All offending groups are listed in a single message.
+    """
+    df = df.copy()
+    errors: list[str] = []
+    to_normalize: list[tuple] = []
+
+    for (cycle_num, sender), group in df.groupby(["차수", "Sender CC"]):
+        pct_sum = group["%"].sum()
+        if pd.isna(pct_sum) or pct_sum == 0.0:
+            continue
+        diff = abs(pct_sum - 1.0)
+        if diff < 1e-9:
+            continue
+        if diff < 1e-4:
+            to_normalize.append((group.index, pct_sum, cycle_num, sender))
+        else:
+            errors.append(
+                f"cycle.csv 차수={cycle_num}, Sender CC={sender}: "
+                f"비율 합이 {pct_sum:.6f}입니다. "
+                f"합계가 1.0이 되도록 cycle.csv를 직접 수정해 주세요."
+            )
+
+    if errors:
+        raise ValueError("\n".join(errors))
+
+    for idx, pct_sum, cycle_num, sender in to_normalize:
+        df.loc[idx, "%"] = df.loc[idx, "%"] / pct_sum
+        warnings.warn(
+            f"cycle.csv 차수={cycle_num}, Sender CC={sender}: "
+            f"비율 합이 {pct_sum:.9f}이므로 자동 정규화했습니다."
+        )
+
+    return df
+
+
 # Step 1: CSV readers
 
 
@@ -377,6 +440,7 @@ def load_cycle(path: Path) -> pd.DataFrame:
     df["Sender CC"] = normalize_code_column(df["Sender CC"], fname)
     df["Receiver CC"] = normalize_code_column(df["Receiver CC"], fname)
     df["%"] = parse_percent_column(df["%"], fname)
+    df = _normalize_cycle_ratios(df)
     return df
 
 
