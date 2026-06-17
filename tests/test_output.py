@@ -1,4 +1,4 @@
-"""Tests for src.output: full-grid build_result and CSV writing."""
+"""Tests for src.output: computed-grid build_result and CSV writing."""
 from __future__ import annotations
 
 import pandas as pd
@@ -15,16 +15,19 @@ def _alloc_cols(df):
 # SUCCESS cases
 
 
-def test_build_result_row_count_matches_master_pairs(pipeline_outputs, loaded_inputs):
-    # Rows = the master's actual (COA, CC) pairs, not the full product.
+def test_build_result_row_count_matches_computed_pairs(pipeline_outputs):
+    # The grid is the computed result itself — the (전기COA, 기존COA, CC) groups that
+    # actually carry an allocation or a direct cost — NOT the master's (COA, CC)
+    # pairs. In sample_data the master has 15 pairs but only 13 are computed
+    # (2 master-only pairs with neither allocation nor direct cost are absent).
+    #
+    # Asserted against a fixed expected count rather than a value derived from the
+    # same compute path, so a build_result bug cannot mask itself. Trade-off: this
+    # number must be updated whenever sample_data changes.
     result = pipeline_outputs["result"]
-    raw_coa_df = loaded_inputs["raw_coa_df"]
-    n_coa = raw_coa_df["COA"].nunique()
-    n_cc = raw_coa_df["Cost Center"].nunique()
-    n_pairs = raw_coa_df.drop_duplicates(["COA", "Cost Center"]).shape[0]
-    assert n_coa == 4 and n_cc == 6
-    assert n_pairs == 15
-    assert len(result) == n_pairs
+    assert len(result) == 13
+    # No duplicate key rows: groupby collapses each (전기COA, 기존COA, CC) once.
+    assert not result.duplicated(["전기COA", "기존COA", "코스트센터"]).any()
 
 
 def test_direct_rows_have_zero_allocation(pipeline_outputs):

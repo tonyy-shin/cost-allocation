@@ -27,7 +27,6 @@ from src.prepare import (
     calculate_coa_ratio,
     separate_common_direct,
     validate_cycle_cc,
-    validate_master_completeness,
     validate_sender_coverage,
 )
 
@@ -81,19 +80,6 @@ def _load_inputs(
         notes.append(
             "cycle 시트에서 알 수 없는 CC 발견 (계속 진행): "
             + ", ".join(unknown_ccs)
-        )
-
-    missing_pairs = validate_master_completeness(coa_df, mapping_df, cycle_df)
-    if missing_pairs:
-        shown = missing_pairs[:20]
-        lines = "\n".join(f"COA={coa}, CC={cc}" for coa, cc in shown)
-        if len(missing_pairs) > 20:
-            lines += f"\n... 외 {len(missing_pairs) - 20}개"
-        raise ValueError(
-            "마스터 coa_cc_amounts에 누락된 (COA, CC) 쌍이 있습니다.\n\n"
-            "배부 수령액이 결과에서 누락될 수 있으니 마스터를 보완해 주세요.\n\n"
-            f"누락 쌍 ({len(missing_pairs)}개):\n\n"
-            f"{lines}"
         )
 
     dtypes = build_category_dtypes(coa_df, mapping_df)
@@ -169,9 +155,7 @@ def main() -> None:
             common_decomposed = _run_allocation(df_5b, df_ratio, cc_list, cycle_df)
 
             n_cycles = cycle_df["차수"].nunique()
-            result = build_result(
-                common_decomposed, df_direct, coa_df, n_cycles
-            )
+            result = build_result(common_decomposed, df_direct, n_cycles)
             out_path = save_result(result, paths["output_dir"])
 
         messages = notes + [str(w.message) for w in caught]

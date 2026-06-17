@@ -49,7 +49,7 @@ common_decomposed = decompose_to_original_coa(received_by_cycle, df_ratio)
 
 # Steps 10-12
 n_cycles = cycle_df["차수"].nunique()
-result = build_result(common_decomposed, df_direct, raw_coa_df, n_cycles)
+result = build_result(common_decomposed, df_direct, n_cycles)
 out_path = save_result(result, TEST_PATHS["output_dir"])
 
 print(result.to_string())

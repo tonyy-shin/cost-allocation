@@ -106,7 +106,7 @@ def pipeline_outputs(loaded_inputs) -> dict:
     decomposed = decompose_to_original_coa(received_by_cycle, df_ratio)
 
     n_cycles = cycle_df["차수"].nunique()
-    result = build_result(decomposed, df_direct, raw_coa_df, n_cycles)
+    result = build_result(decomposed, df_direct, n_cycles)
 
     return {
         "df_direct": df_direct,
