@@ -88,7 +88,9 @@ def run_allocation_loop(
     # accumulate balance during the loop.
     initial_cc_balance = pivot.sum(axis=0)
     delta_by_cycle = {}
-    unbalanced = False
+    # Collects one concrete message per (cycle, sender) whose distribution
+    # ratios do not sum to 100%, so the warning names exactly which entry to fix.
+    unbalanced = []
 
     for cycle_num, cycle_rows in cycle_df.groupby("차수", sort=True):
         deltas = []
@@ -112,14 +114,23 @@ def run_allocation_loop(
             # Check residual the moment this sender finishes distributing,
             # before a later cycle can credit it back as a receiver.
             if (sender_bal - total_sent).abs().max() > 1e-6 * max(sender_bal.abs().max(), 1.0):
-                unbalanced = True
+                pct_sum = float(sender_rows["%"].sum())
+                residual = float((sender_bal - total_sent).sum())
+                unbalanced.append(
+                    f"{cycle_num}차 Sender {sender}: 배부 비율 합 {pct_sum:.1%} "
+                    f"(잔여 {residual:,.0f}원)"
+                )
         delta_by_cycle[cycle_num] = (
             pd.concat(deltas, ignore_index=True) if deltas
             else pd.DataFrame(columns=["전기COA", "Receiver CC", "Amounts"])
         )
 
     if unbalanced:
-        warnings.warn("배부 후 sender CC 잔액이 0이 되지 않았습니다")
+        warnings.warn(
+            "배부 후 sender CC 잔액이 0원이 되지 않았습니다. "
+            "다음 항목의 배부 비율 합이 100%가 아닙니다:\n"
+            + "\n".join(unbalanced)
+        )
 
     # A CC carrying common cost that never sends keeps its original balance,
     # which then disappears from the result. Report each such CC by amount.
