@@ -7,17 +7,16 @@ import pandas as pd
 from src.allocation import TOTAL_COL, alloc_col, parse_alloc_col
 
 
-# Steps 10–11: Build final result with full grid
+# Steps 10–11: Build final result over the master's (base COA, CC) pairs
 
 
 def build_result(
     common_decomposed: pd.DataFrame,
     direct_df: pd.DataFrame,
     coa_df: pd.DataFrame,
-    cc_df: pd.DataFrame,
     n_cycles: int,
 ) -> pd.DataFrame:
-    """Combine common and direct costs, then expand to the full (base COA x CC) grid.
+    """Combine common and direct costs, then reindex onto the master's (COA, CC) pairs.
 
     Covers Steps 10 and 11.
 
@@ -26,10 +25,13 @@ def build_result(
     Direct costs (direct_df):
         All allocation columns are 0; 배부합계 = original Amounts.
 
-    Full grid (Step 11):
-        COA range  : determined by coa_df (amount sheet only; mapping-only COAs excluded).
-        CC range   : determined by cc_df (full CC master).
-        Implementation: MultiIndex.from_product + reindex(fill_value=0).
+    Grid (Step 11):
+        Row range  : the (기존COA, Cost Center) pairs that actually exist in the
+                     COA·CC master (coa_df), not the full COA x CC product. The
+                     master is assumed to enumerate every valid pair, so every
+                     allocated (base COA, receiver CC) pair is covered and no
+                     received amount is dropped on reindex.
+        Implementation: MultiIndex of the master's unique pairs + reindex(fill_value=0).
         Assert (기존COA, CC) uniqueness before reindex to catch silent fill errors.
 
     Output column order:
@@ -39,15 +41,15 @@ def build_result(
     ----------
     common_decomposed : decompose_to_original_coa result.
     direct_df         : df_direct from separate_common_direct.
-    coa_df            : COA amount DataFrame before enrich_cc (defines the COA range).
-    cc_df             : CC master DataFrame (defines the CC range).
+    coa_df            : COA·CC master DataFrame (defines the (COA, CC) pair range).
     n_cycles          : Number of allocation cycles (determines allocation column count).
 
     Returns
     -------
     pd.DataFrame
         All columns as described above.
-        Every (base COA x CC) combination is present; missing values filled with 0.
+        Every (base COA, CC) pair present in the master appears; values absent
+        from the allocation are filled with 0.
     """
     alloc_cols = [alloc_col(i) for i in range(1, n_cycles + 1)]
     numeric_cols = alloc_cols + [TOTAL_COL]
@@ -86,11 +88,10 @@ def build_result(
         .astype(str)
     )
 
-    # Full grid expansion
-    coa_list = coa_df["COA"].unique().tolist()
-    cc_list = cc_df["CC"].unique().tolist()
-    full_index = pd.MultiIndex.from_product(
-        [coa_list, cc_list], names=["기존COA", "Cost Center"]
+    # Reindex onto the master's actual (base COA, CC) pairs (no product expansion).
+    pairs = coa_df[["COA", "Cost Center"]].astype(str).drop_duplicates()
+    full_index = pd.MultiIndex.from_arrays(
+        [pairs["COA"], pairs["Cost Center"]], names=["기존COA", "Cost Center"]
     )
 
     assert not combined.duplicated(["기존COA", "Cost Center"]).any(), \

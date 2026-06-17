@@ -8,8 +8,7 @@ from pathlib import Path
 
 
 _FIELDS = [
-    ("cc",         "CC 마스터",     "file"),
-    ("coa_amount", "COA 금액",      "file"),
+    ("coa_amount", "COA·CC 마스터",  "file"),
     ("mapping",    "전기 매핑",      "file"),
     ("cycle",      "Cycle",         "file"),
     ("output_dir", "결과 저장 폴더", "dir"),
@@ -58,15 +57,14 @@ def _display_name(path: str) -> str:
 
 
 def prompt_file_paths() -> dict[str, Path] | None:
-    """Open a tkinter window to collect four input file paths and an output directory.
+    """Open a tkinter window to collect three input file paths and an output directory.
 
     Previously selected paths are pre-filled if they still exist on disk.
 
     Returns
     -------
     dict with keys:
-        'cc'         : Path  -- CC master CSV
-        'coa_amount' : Path  -- COA amount CSV
+        'coa_amount' : Path  -- COA·CC master amount CSV
         'mapping'    : Path  -- transfer COA mapping CSV
         'cycle'      : Path  -- allocation cycle CSV
         'output_dir' : Path  -- directory where the result will be saved

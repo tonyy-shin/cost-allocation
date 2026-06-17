@@ -7,7 +7,7 @@ import pytest
 from src.allocation import build_pivot_matrix, run_allocation_loop
 from src.prepare import (
     assign_transfer_coa, calculate_coa_ratio, separate_common_direct,
-    validate_cycle_cc, validate_sender_coverage,
+    validate_cycle_cc, validate_master_completeness, validate_sender_coverage,
 )
 
 
@@ -61,6 +61,45 @@ def test_validate_sender_coverage_flags_unregistered(pipeline_outputs, loaded_in
     assert violators == [("1002", 1500000.0)]
 
 
+def test_validate_master_completeness_passes_when_all_pairs_present():
+    # Every common-cost COA (6100, 6200) x Receiver CC (1001, 1002) pair has a
+    # master row, so validation passes.
+    coa_df = pd.DataFrame({
+        "COA": ["6100", "6100", "6200", "6200"],
+        "Cost Center": ["1001", "1002", "1001", "1002"],
+        "Amounts": [100.0, 100.0, 100.0, 100.0],
+    })
+    mapping_df = pd.DataFrame({
+        "전기COA": ["E6100", "E6200"],
+        "기존COA": ["6100", "6200"],
+    })
+    cycle_df = pd.DataFrame({
+        "차수": [1, 1],
+        "Sender CC": ["1001", "1001"],
+        "Receiver CC": ["1001", "1002"],
+        "%": [0.5, 0.5],
+    })
+    assert validate_master_completeness(coa_df, mapping_df, cycle_df) == []
+
+
+def test_validate_master_completeness_excludes_direct_cost_coa():
+    # 7100 is a direct cost (absent from the mapping), so its missing master pair
+    # (7100, 1001) must NOT be reported. Only common-cost COA 6100 is checked.
+    coa_df = pd.DataFrame({
+        "COA": ["6100"],
+        "Cost Center": ["1001"],
+        "Amounts": [100.0],
+    })
+    mapping_df = pd.DataFrame({"전기COA": ["E6100"], "기존COA": ["6100"]})
+    cycle_df = pd.DataFrame({
+        "차수": [1],
+        "Sender CC": ["1001"],
+        "Receiver CC": ["1001"],
+        "%": [1.0],
+    })
+    assert validate_master_completeness(coa_df, mapping_df, cycle_df) == []
+
+
 # WARNING cases
 
 
@@ -84,5 +123,26 @@ def test_validate_cycle_cc_returns_unknown_ccs(loaded_inputs):
         "Receiver CC": ["8888", "1002"],
         "%": [0.5, 0.5],
     })
-    unknown = validate_cycle_cc(cycle_df, loaded_inputs["cc_df"])
+    unknown = validate_cycle_cc(cycle_df, loaded_inputs["coa_df"])
     assert unknown == ["8888", "9999"]
+
+
+def test_validate_master_completeness_reports_missing_pairs():
+    # CC 1002 has no master row, so every common-cost COA x 1002 pair is missing.
+    coa_df = pd.DataFrame({
+        "COA": ["6100", "6200"],
+        "Cost Center": ["1001", "1001"],
+        "Amounts": [100.0, 100.0],
+    })
+    mapping_df = pd.DataFrame({
+        "전기COA": ["E6100", "E6200"],
+        "기존COA": ["6100", "6200"],
+    })
+    cycle_df = pd.DataFrame({
+        "차수": [1, 1],
+        "Sender CC": ["1001", "1001"],
+        "Receiver CC": ["1001", "1002"],
+        "%": [0.5, 0.5],
+    })
+    missing = validate_master_completeness(coa_df, mapping_df, cycle_df)
+    assert missing == [("6100", "1002"), ("6200", "1002")]
