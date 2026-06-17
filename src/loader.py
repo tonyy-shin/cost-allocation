@@ -51,7 +51,7 @@ def _read_csv(path: Path, **kwargs) -> pd.DataFrame:
     ValueError
         If the file decodes as neither UTF-8 nor EUC-KR.
     """
-    for encoding in ("utf-8-sig", "euc-kr"):
+    for encoding in ("utf-8-sig", "euc-kr", "cp949"):
         try:
             return pd.read_csv(path, encoding=encoding, **kwargs)
         except UnicodeDecodeError:
