@@ -15,13 +15,16 @@ def _alloc_cols(df):
 # SUCCESS cases
 
 
-def test_build_result_full_grid_row_count(pipeline_outputs, loaded_inputs):
-    # Full (기존COA x CC) grid: 4 base COAs x 6 CCs = 24 rows.
+def test_build_result_row_count_matches_master_pairs(pipeline_outputs, loaded_inputs):
+    # Rows = the master's actual (COA, CC) pairs, not the full product.
     result = pipeline_outputs["result"]
-    n_coa = loaded_inputs["raw_coa_df"]["COA"].nunique()
-    n_cc = loaded_inputs["cc_df"]["CC"].nunique()
+    raw_coa_df = loaded_inputs["raw_coa_df"]
+    n_coa = raw_coa_df["COA"].nunique()
+    n_cc = raw_coa_df["Cost Center"].nunique()
+    n_pairs = raw_coa_df.drop_duplicates(["COA", "Cost Center"]).shape[0]
     assert n_coa == 4 and n_cc == 6
-    assert len(result) == 24
+    assert n_pairs == 15
+    assert len(result) == n_pairs
 
 
 def test_direct_rows_have_zero_allocation(pipeline_outputs):

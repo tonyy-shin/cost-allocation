@@ -15,8 +15,6 @@ from src.allocation import (
 from src.loader import (
     apply_category_dtypes,
     build_category_dtypes,
-    enrich_cc,
-    load_cc,
     load_coa_amount,
     load_cycle,
     load_mapping,
@@ -29,6 +27,7 @@ from src.prepare import (
     calculate_coa_ratio,
     separate_common_direct,
     validate_cycle_cc,
+    validate_master_completeness,
     validate_sender_coverage,
 )
 
@@ -41,21 +40,17 @@ class PipelineAborted(Exception):
 def _load_inputs(
     paths: dict,
     notes: list[str],
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Steps 1–2: load files, validate cycle CCs, apply dtypes, enrich CC.
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Steps 1–2: load files, validate cycle CCs, apply dtypes.
 
-    Returns (cc_df, raw_coa_df, coa_df, mapping_df, cycle_df).
-    raw_coa_df is the pre-enrich snapshot passed to build_result for COA range.
+    Returns (coa_df, mapping_df, cycle_df). The CC list is taken from
+    coa_df["Cost Center"]; there is no separate CC master file.
     Appends a note to `notes` if the user continues past unknown CCs.
     Raises PipelineAborted if the user declines to continue.
     """
     validation_errors: list[str] = []
 
-    cc_df = coa_df = mapping_df = cycle_df = None
-    try:
-        cc_df = load_cc(paths["cc"])
-    except ValueError as e:
-        validation_errors.append(str(e))
+    coa_df = mapping_df = cycle_df = None
     try:
         coa_df = load_coa_amount(paths["coa_amount"])
     except ValueError as e:
@@ -74,7 +69,7 @@ def _load_inputs(
             notes.append(msg)
         raise PipelineAborted("입력 파일 검증에 실패했습니다.")
 
-    unknown_ccs = validate_cycle_cc(cycle_df, cc_df)
+    unknown_ccs = validate_cycle_cc(cycle_df, coa_df)
     if unknown_ccs:
         msg = (
             f"다음 CC가 마스터에서 발견되지 않았습니다:\n"
@@ -88,15 +83,23 @@ def _load_inputs(
             + ", ".join(unknown_ccs)
         )
 
+    missing_pairs = validate_master_completeness(coa_df, mapping_df, cycle_df)
+    if missing_pairs:
+        shown = missing_pairs[:20]
+        lines = "\n".join(f"COA={coa}, CC={cc}" for coa, cc in shown)
+        if len(missing_pairs) > 20:
+            lines += f"\n... 외 {len(missing_pairs) - 20}개"
+        raise ValueError(
+            "마스터 coa_cc_amounts에 누락된 (COA, CC) 쌍이 있습니다.\n\n"
+            "배부 수령액이 결과에서 누락될 수 있으니 마스터를 보완해 주세요.\n\n"
+            f"누락 쌍 ({len(missing_pairs)}개):\n\n"
+            f"{lines}"
+        )
 
-    dtypes = build_category_dtypes(cc_df, coa_df, mapping_df)
-    cc_df, coa_df, mapping_df = apply_category_dtypes(
-        cc_df, coa_df, mapping_df, dtypes=dtypes
-    )
+    dtypes = build_category_dtypes(coa_df, mapping_df)
+    coa_df, mapping_df = apply_category_dtypes(coa_df, mapping_df, dtypes=dtypes)
 
-    raw_coa_df = coa_df
-    coa_df = enrich_cc(coa_df, cc_df)
-    return cc_df, raw_coa_df, coa_df, mapping_df, cycle_df
+    return coa_df, mapping_df, cycle_df
 
 
 
@@ -157,19 +160,17 @@ def main() -> None:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
 
-            cc_df, raw_coa_df, coa_df, mapping_df, cycle_df = _load_inputs(
-                paths, notes
-            )
+            coa_df, mapping_df, cycle_df = _load_inputs(paths, notes)
             df_direct, df_5b, df_ratio = _prepare_costs(
                 coa_df, mapping_df, cycle_df
             )
 
-            cc_list = cc_df["CC"].unique().tolist()
+            cc_list = coa_df["Cost Center"].unique().tolist()
             common_decomposed = _run_allocation(df_5b, df_ratio, cc_list, cycle_df)
 
             n_cycles = cycle_df["차수"].nunique()
             result = build_result(
-                common_decomposed, df_direct, raw_coa_df, cc_df, n_cycles
+                common_decomposed, df_direct, coa_df, n_cycles
             )
             out_path = save_result(result, paths["output_dir"])
 

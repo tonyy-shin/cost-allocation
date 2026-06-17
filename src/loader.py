@@ -318,36 +318,11 @@ def _normalize_cycle_ratios(df: pd.DataFrame) -> pd.DataFrame:
 # Step 1: CSV readers
 
 
-def load_cc(path: Path) -> pd.DataFrame:
-    """Read CC master CSV and return a DataFrame.
-
-    Parameters
-    ----------
-    path : Path
-        Path to cc.csv
-
-    Returns
-    -------
-    pd.DataFrame
-        Column: CC (str, normalized)
-    """
-    _validate_local_path(path)
-    df = _read_csv(
-        path,
-        dtype = {"CC": str},
-    )
-
-    required = ["CC"]
-    missing = [c for c in required if c not in df.columns]
-    if missing:
-        raise ValueError(f"{os.path.basename(path)}에 필수 컬럼이 없습니다: {missing}")
-
-    df["CC"] = normalize_code_column(df["CC"], os.path.basename(path))
-    return df
-
-
 def load_coa_amount(path: Path) -> pd.DataFrame:
-    """Read COA amount CSV and return DataFrame.
+    """Read the COA·CC master amount CSV and return DataFrame.
+
+    This sheet is also the source of the CC list: every Cost Center used by the
+    pipeline is taken from its ``Cost Center`` unique values.
 
     Parameters
     ----------
@@ -449,30 +424,30 @@ def load_cycle(path: Path) -> pd.DataFrame:
 
 
 def build_category_dtypes(
-    cc_df: pd.DataFrame,
     coa_df: pd.DataFrame,
     mapping_df: pd.DataFrame,
 ) -> dict[str, CategoricalDtype]:
     """Build three shared CategoricalDtype objects for transfer COA, base COA, and CC.
 
     Categories are defined once from master data so that all DataFrames share
-    identical dtypes.
+    identical dtypes. The CC categories are derived from the COA·CC master sheet
+    (coa_df) itself, which is the single source of the CC list.
 
     Parameters
     ----------
-    cc_df      : load_cc result (CC column)
-    coa_df     : load_coa_amount result (COA column -> base COA range)
+    coa_df     : load_coa_amount result. COA column -> base COA range;
+                 Cost Center column -> CC range.
     mapping_df : load_mapping result (전기COA column)
 
     Returns
     -------
     dict with keys:
-        'cc'    : CategoricalDtype - derived from CC master
+        'cc'    : CategoricalDtype - derived from the master's Cost Center column
         'coa'   : CategoricalDtype - derived from COA amount sheet (base COA)
         'e_coa' : CategoricalDtype - derived from mapping sheet (transfer COA).
                   Includes "" (empty string) for direct-cost rows.
     """
-    cc_cats = cc_df["CC"].unique().tolist()
+    cc_cats = coa_df["Cost Center"].unique().tolist()
     coa_cats = coa_df["COA"].unique().tolist()
     e_coa_cats = [""] + mapping_df["전기COA"].unique().tolist()
 
@@ -544,82 +519,33 @@ def _cast_to_category(
 
 
 def apply_category_dtypes(
-    cc_df: pd.DataFrame,
     coa_df: pd.DataFrame,
     mapping_df: pd.DataFrame,
     *,
     dtypes: dict[str, CategoricalDtype],
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Apply shared CategoricalDtype objects.
 
-    Code columns whose categories come from another sheet are cast via
-    _cast_to_category, which masks out-of-category codes to NaN before casting to
-    avoid the pandas deprecation. A Cost Center in the amount sheet that is absent
-    from the CC master is a genuine data error and is reported. A base COA in the
+    The Cost Center column's categories are derived from the master itself, so
+    every value is in-category and a plain cast is safe. A base COA in the
     mapping sheet that is absent from the amount sheet is expected (the mapping is
-    a superset reference) and is masked silently.
+    a superset reference) and is masked silently via _cast_to_category.
 
     Parameters
     ----------
-    cc_df, coa_df, mapping_df : DataFrames with str-normalized code columns.
+    coa_df, mapping_df : DataFrames with str-normalized code columns.
     dtypes : Return value of build_category_dtypes.
 
     Returns
     -------
-    (cc_df, coa_df, mapping_df) with code columns cast to CategoricalDtype.
+    (coa_df, mapping_df) with code columns cast to CategoricalDtype.
     """
-    cc_df = cc_df.assign(CC=cc_df["CC"].astype(dtypes["cc"]))
     coa_df = coa_df.assign(
         COA=coa_df["COA"].astype(dtypes["coa"]),
-        **{
-            "Cost Center": _cast_to_category(
-                coa_df["Cost Center"], dtypes["cc"], reference="CC 마스터"
-            )
-        },
+        **{"Cost Center": coa_df["Cost Center"].astype(dtypes["cc"])},
     )
     mapping_df = mapping_df.assign(
         전기COA=mapping_df["전기COA"].astype(dtypes["e_coa"]),
         기존COA=_cast_to_category(mapping_df["기존COA"], dtypes["coa"]),
     )
-    return cc_df, coa_df, mapping_df
-
-
-# Step 2-B: CC enrichment
-
-
-def enrich_cc(coa_df: pd.DataFrame, cc_df: pd.DataFrame) -> pd.DataFrame:
-    """Add missing CCs from the master to the COA amount DataFrame.
-
-    CCs present in the master but absent from the amount sheet are appended
-    so that all CCs are represented throughout the pipeline.
-    Added rows have COA = '' (empty string) and Amounts = 0.
-
-    Parameters
-    ----------
-    coa_df : COA amount DataFrame after apply_category_dtypes.
-    cc_df  : CC master DataFrame after apply_category_dtypes.
-
-    Returns
-    -------
-    pd.DataFrame
-        COA amount DataFrame containing every CC in the master.
-    """
-    e_ccs = coa_df["Cost Center"].unique()
-    m_ccs = cc_df.loc[~cc_df["CC"].isin(e_ccs), "CC"]
-
-    if m_ccs.empty:
-        return coa_df
-
-    # "" marks filler rows (CC in master but absent from the amount sheet).
-    # It must be a valid category before constructing the filler Categorical.
-    coa_dtype = coa_df["COA"].dtype
-    if "" not in coa_dtype.categories:
-        coa_dtype = CategoricalDtype(categories=[""] + list(coa_dtype.categories))
-        coa_df = coa_df.assign(COA=coa_df["COA"].astype(coa_dtype))
-
-    filler = pd.DataFrame({
-        "COA": pd.Categorical([""] * len(m_ccs), dtype=coa_dtype),
-        "Cost Center": pd.Categorical(m_ccs.values, dtype=coa_df["Cost Center"].dtype),
-        "Amounts": 0.0,
-    })
-    return pd.concat([coa_df, filler], ignore_index=True)
+    return coa_df, mapping_df

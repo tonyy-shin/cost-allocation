@@ -22,7 +22,7 @@ def test_build_pivot_matrix_shape(pipeline_outputs, loaded_inputs):
     df_5b = pipeline_outputs["df_5b"]
     pivot = pipeline_outputs["pivot"]
     n_ecoa = df_5b["전기COA"].nunique()
-    n_cc = loaded_inputs["cc_df"]["CC"].nunique()
+    n_cc = len(loaded_inputs["cc_list"])
     assert pivot.shape == (n_ecoa, n_cc)
 
 

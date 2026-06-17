@@ -17,7 +17,7 @@ def assign_transfer_coa(
 
     Parameters
     ----------
-    coa_df     : enrich_cc result. Columns: COA, Cost Center, Amounts
+    coa_df     : load_coa_amount result. Columns: COA, Cost Center, Amounts
     mapping_df : Transfer COA mapping DataFrame. Columns: 전기COA, 기존COA
 
     Returns
@@ -178,21 +178,24 @@ def calculate_coa_ratio(df_5a: pd.DataFrame) -> pd.DataFrame:
 
 def validate_cycle_cc(
     cycle_df: pd.DataFrame,
-    cc_df: pd.DataFrame,
+    coa_df: pd.DataFrame,
 ) -> list[str]:
-    """Check that every Sender and Receiver CC in the cycle sheet exists in the CC master.
+    """Check that every Sender and Receiver CC in the cycle sheet exists in the master.
+
+    The CC master is the COA·CC amount sheet itself; valid CCs are its
+    ``Cost Center`` values.
 
     Parameters
     ----------
     cycle_df : load_cycle result.
-    cc_df    : CC master DataFrame.
+    coa_df   : load_coa_amount result (Cost Center column is the CC list).
 
     Returns
     -------
     list[str]
         CC codes not found in the master. Empty list means validation passed.
     """
-    master = set(cc_df["CC"])
+    master = set(coa_df["Cost Center"])
     cycle_ccs = pd.concat([
         cycle_df["Sender CC"],
         cycle_df["Receiver CC"],
@@ -233,3 +236,55 @@ def validate_sender_coverage(
         if cc not in senders and abs(amount) > 1e-6
     ]
     return sorted(violators, key = lambda item: item[0])
+
+
+def validate_master_completeness(
+    coa_df: pd.DataFrame,
+    mapping_df: pd.DataFrame,
+    cycle_df: pd.DataFrame,
+) -> list[tuple[str, str]]:
+    """Check that every Receiver CC x common-cost COA pair exists in the master.
+
+    Common-cost COAs are the base COAs listed in mapping_df["기존COA"]. The final
+    result is assembled only from received (allocated) amounts, so if a Receiver
+    CC has no master row for a common-cost COA, the amount allocated to that CC
+    loses its place in decompose / build_result and silently disappears, breaking
+    the conservation law 배부전액 합 == 배부합계. This is the receiver-side
+    counterpart to validate_sender_coverage and must run before the pipeline.
+
+    Direct-cost COAs (those absent from the mapping) are excluded automatically,
+    since the common-cost COA set is derived solely from mapping_df["기존COA"].
+
+    Invariant: the four code columns (coa_df["COA"], coa_df["Cost Center"],
+    mapping_df["기존COA"], cycle_df["Receiver CC"]) are already normalized to
+    float->int->str strings by the loader's normalize_code_column, so only "6100"
+    appears and a "6100.0" vs "6100" mismatch cannot occur. The .astype(str)
+    below is a guard for categorical-dtype inputs (test fixtures).
+
+    Parameters
+    ----------
+    coa_df     : load_coa_amount result. (COA, Cost Center) pairs are the master.
+    mapping_df : load_mapping result. 기존COA column defines common-cost COAs.
+    cycle_df   : load_cycle result. Receiver CC column is the set of receivers.
+
+    Returns
+    -------
+    list[tuple[str, str]]
+        Missing (기존COA, Receiver CC) pairs, sorted. Empty means validation passed.
+    """
+    common_coas = [
+        c for c in mapping_df["기존COA"].unique() if str(c) not in ("", "nan")
+    ]
+    receiver_ccs = [
+        c for c in cycle_df["Receiver CC"].unique() if str(c) not in ("", "nan")
+    ]
+    master_pairs = set(
+        zip(coa_df["COA"].astype(str), coa_df["Cost Center"].astype(str))
+    )
+    missing = [
+        (str(coa), str(cc))
+        for coa in common_coas
+        for cc in receiver_ccs
+        if (str(coa), str(cc)) not in master_pairs
+    ]
+    return sorted(missing)

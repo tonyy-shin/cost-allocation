@@ -10,7 +10,7 @@ import pytest
 from src.loader import (
     _normalize_cycle_ratios, _validate_local_path,
     apply_category_dtypes, build_category_dtypes,
-    load_cc, load_coa_amount, load_cycle, load_mapping,
+    load_coa_amount, load_cycle, load_mapping,
     normalize_code_column, parse_numeric_column, parse_percent_column,
 )
 
@@ -27,17 +27,16 @@ def _is_blank(value) -> bool:
 # SUCCESS cases
 
 
-def test_all_four_csvs_load(sample_paths):
-    cc_df = load_cc(sample_paths["cc"])
+def test_all_three_csvs_load(sample_paths):
     coa_df = load_coa_amount(sample_paths["coa_amount"])
     mapping_df = load_mapping(sample_paths["mapping"])
     cycle_df = load_cycle(sample_paths["cycle"])
 
-    assert "CC" in cc_df.columns
     assert {"COA", "Cost Center", "Amounts"} <= set(coa_df.columns)
     assert {"전기COA", "기존COA"} <= set(mapping_df.columns)
     assert {"차수", "Sender CC", "Receiver CC", "%"} <= set(cycle_df.columns)
-    assert len(cc_df) > 0
+    # The CC list comes from the master's Cost Center column.
+    assert coa_df["Cost Center"].nunique() > 0
 
 
 def test_normalize_strips_trailing_zero():
@@ -258,67 +257,48 @@ def test_load_mapping_unknown_encoding_raises(tmp_path):
 # masks unknowns first and reports exactly which codes were dropped.
 
 
-def _category_frames(cost_center="1001", 기존coa="6100"):
-    cc_df = pd.DataFrame({"CC": ["1001"]})
+def _category_frames(기존coa="6100"):
     coa_df = pd.DataFrame(
-        {"COA": ["6100"], "Cost Center": [cost_center], "Amounts": [1.0]}
+        {"COA": ["6100"], "Cost Center": ["1001"], "Amounts": [1.0]}
     )
     mapping_df = pd.DataFrame({"전기COA": ["E6100"], "기존COA": [기존coa]})
-    return cc_df, coa_df, mapping_df
-
-
-def test_apply_category_warns_on_cost_center_absent_from_master():
-    # Cost Center 9999 is not in the CC master, so it is reported and set to NaN.
-    cc_df, coa_df, mapping_df = _category_frames(cost_center="9999")
-    dtypes = build_category_dtypes(cc_df, coa_df, mapping_df)
-    with pytest.warns(UserWarning, match="CC 마스터에 없는 코드"):
-        _, coa_out, _ = apply_category_dtypes(
-            cc_df, coa_df, mapping_df, dtypes=dtypes
-        )
-    assert pd.isna(coa_out["Cost Center"].iloc[0])
+    return coa_df, mapping_df
 
 
 def test_apply_category_silent_on_base_coa_absent_from_amount_sheet():
     # The mapping sheet legitimately lists base COAs absent from this period's
     # amount sheet, so 기존COA 7777 is masked to NaN WITHOUT any warning.
-    cc_df, coa_df, mapping_df = _category_frames(기존coa="7777")
-    dtypes = build_category_dtypes(cc_df, coa_df, mapping_df)
+    coa_df, mapping_df = _category_frames(기존coa="7777")
+    dtypes = build_category_dtypes(coa_df, mapping_df)
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        _, _, mapping_out = apply_category_dtypes(
-            cc_df, coa_df, mapping_df, dtypes=dtypes
+        _, mapping_out = apply_category_dtypes(
+            coa_df, mapping_df, dtypes=dtypes
         )
     assert pd.isna(mapping_out["기존COA"].iloc[0])
 
 
 def test_apply_category_no_future_warning_on_mismatch():
-    # The whole point of the fix: a cross-sheet mismatch must NOT emit the pandas
-    # deprecation (which would raise in a future version), only our UserWarning.
-    cc_df, coa_df, mapping_df = _category_frames(cost_center="9999")
-    dtypes = build_category_dtypes(cc_df, coa_df, mapping_df)
+    # A base-COA cross-sheet mismatch must NOT emit the pandas deprecation
+    # (which would raise in a future version); it is masked silently.
+    coa_df, mapping_df = _category_frames(기존coa="7777")
+    dtypes = build_category_dtypes(coa_df, mapping_df)
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        apply_category_dtypes(cc_df, coa_df, mapping_df, dtypes=dtypes)
+        apply_category_dtypes(coa_df, mapping_df, dtypes=dtypes)
     assert not any(issubclass(w.category, FutureWarning) for w in caught)
 
 
 def test_apply_category_clean_inputs_emit_no_warning():
     # When every code matches across sheets, no warning of any kind fires.
-    cc_df, coa_df, mapping_df = _category_frames()
-    dtypes = build_category_dtypes(cc_df, coa_df, mapping_df)
+    coa_df, mapping_df = _category_frames()
+    dtypes = build_category_dtypes(coa_df, mapping_df)
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        apply_category_dtypes(cc_df, coa_df, mapping_df, dtypes=dtypes)
+        apply_category_dtypes(coa_df, mapping_df, dtypes=dtypes)
 
 
 # FAILURE cases
-
-
-def test_load_cc_missing_column_raises(tmp_path):
-    p = tmp_path / "cc.csv"
-    p.write_text("X\n1\n", encoding="utf-8")
-    with pytest.raises(ValueError, match="필수 컬럼"):
-        load_cc(p)
 
 
 def test_load_coa_amount_missing_column_raises(tmp_path):
