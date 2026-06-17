@@ -7,7 +7,7 @@ import pytest
 
 from src.loader import (
     _validate_local_path, load_cc, load_coa_amount, load_cycle, load_mapping,
-    normalize_code_column,
+    normalize_code_column, parse_numeric_column, parse_percent_column,
 )
 
 
@@ -59,6 +59,56 @@ def test_normalize_warns_on_non_numeric_value():
     with pytest.warns(UserWarning, match="변환되지 않은 값"):
         out = normalize_code_column(pd.Series(["E6100"]))
     assert _is_blank(out.iloc[0])
+
+
+# NUMERIC / PERCENT parsing
+#
+# Excel "Number" cells with a thousands separator export as "5,000,000" and
+# "Percentage" cells export as "30%". parse_numeric_column / parse_percent_column
+# coerce these back to numbers so the downstream arithmetic does not hit
+# str-vs-str type errors.
+
+
+def test_parse_numeric_strips_thousands_separator():
+    out = parse_numeric_column(pd.Series(["5,000,000"]))
+    assert out.iloc[0] == 5000000.0
+
+
+def test_parse_numeric_plain_number_unchanged():
+    out = parse_numeric_column(pd.Series(["3000000"]))
+    assert out.iloc[0] == 3000000.0
+
+
+def test_parse_numeric_warns_on_non_numeric_value():
+    # "abc" cannot be coerced, so it becomes NaN and a warning fires.
+    with pytest.warns(UserWarning, match="변환되지 않은 값"):
+        out = parse_numeric_column(pd.Series(["abc"]), "coa_amount.csv")
+    assert pd.isna(out.iloc[0])
+
+
+def test_parse_percent_strips_percent_sign():
+    out = parse_percent_column(pd.Series(["30%"]))
+    assert out.iloc[0] == pytest.approx(0.3)
+
+
+def test_parse_percent_decimal_unchanged():
+    # No '%' sign: already a decimal ratio, kept as-is.
+    out = parse_percent_column(pd.Series(["0.3"]))
+    assert out.iloc[0] == pytest.approx(0.3)
+
+
+def test_parse_percent_warns_on_non_numeric_value():
+    with pytest.warns(UserWarning, match="변환되지 않은 값"):
+        out = parse_percent_column(pd.Series(["abc"]), "cycle.csv")
+    assert pd.isna(out.iloc[0])
+
+
+def test_parse_percent_warns_on_value_above_one_without_sign():
+    # "30" with no '%' is likely meant as 0.3; it is NOT auto-corrected, only
+    # flagged, so the value stays 30.0.
+    with pytest.warns(UserWarning, match="1을 초과하는 값"):
+        out = parse_percent_column(pd.Series(["30"]), "cycle.csv")
+    assert out.iloc[0] == pytest.approx(30.0)
 
 
 # ENCODING cases
