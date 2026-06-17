@@ -122,5 +122,19 @@ def test_run_allocation_loop_unbalanced_when_pct_sum_below_one():
     cycle_df = pd.DataFrame(
         {"차수": [1], "Sender CC": ["S"], "Receiver CC": ["R"], "%": [0.5]}
     )
-    with pytest.warns(UserWarning, match="0이 되지 않"):
+    with pytest.warns(UserWarning, match="0원이 되지 않"):
+        run_allocation_loop(pivot, cycle_df)
+
+
+def test_run_allocation_loop_warning_names_sender_and_ratio():
+    # The unbalanced warning must identify the cycle, sender, and ratio sum so
+    # the user knows exactly which cycle.csv entry to fix.
+    pivot = pd.DataFrame(
+        {"S": [1000.0], "R": [0.0]},
+        index=pd.Index(["E6100"], name="전기COA"),
+    )
+    cycle_df = pd.DataFrame(
+        {"차수": [2], "Sender CC": ["S"], "Receiver CC": ["R"], "%": [0.5]}
+    )
+    with pytest.warns(UserWarning, match=r"2차 Sender S.*50\.0%"):
         run_allocation_loop(pivot, cycle_df)
