@@ -385,12 +385,22 @@ def load_mapping(path: Path) -> pd.DataFrame:
 
 
 def load_cycle(path: Path) -> pd.DataFrame:
-    """Read the allocation cycle CSV and return a DataFrame.
+    """Read the allocation cycle CSV (wide format) and return a long DataFrame.
+
+    The cycle CSV is authored as a matrix: ``차수`` and ``Sender CC`` are id
+    columns, every remaining column header is a Receiver CC code, and each cell
+    holds the allocation ratio. This is more intuitive to maintain in Excel than
+    one row per (Sender, Receiver) pair. The wide grid is melted back to the long
+    layout the rest of the pipeline expects, so no downstream code changes.
+
+    Empty relationships may be left blank (→ NaN) or as 0; both are dropped. The
+    0/NaN drop also keeps Receiver CC free of phantom receivers that never
+    actually receive an allocation, which validate_master_completeness relies on.
 
     Parameters
     ----------
     path : Path
-        Path to cycle.csv
+        Path to cycle.csv (wide format).
     Returns
     -------
     pd.DataFrame
@@ -403,20 +413,35 @@ def load_cycle(path: Path) -> pd.DataFrame:
 
     df = _read_csv(
         path,
-        dtype = {"Sender CC": str, "Receiver CC": str},
+        dtype = {"Sender CC": str},
     )
 
-    required = ["차수", "Sender CC", "Receiver CC", "%"]
+    required = ["차수", "Sender CC"]
     missing = [c for c in required if c not in df.columns]
     if missing:
         raise ValueError(f"{os.path.basename(path)}에 필수 컬럼이 없습니다: {missing}")
 
+    # Reshape wide → long: every non-id column header is a Receiver CC code.
+    cycle_df = df.melt(
+        id_vars = ["차수", "Sender CC"],
+        var_name = "Receiver CC",
+        value_name = "%",
+    )
+
+    # Drop empty relationships: 0 cells and blank (NaN) cells both mean "no
+    # allocation". A plain `!= 0` filter keeps NaN, so notna() is required too.
+    cycle_df = cycle_df[(cycle_df["%"] != 0) & cycle_df["%"].notna()]
+
+    cycle_df = (
+        cycle_df.sort_values(["차수", "Sender CC"]).reset_index(drop=True)
+    )
+
     fname = os.path.basename(path)
-    df["Sender CC"] = normalize_code_column(df["Sender CC"], fname)
-    df["Receiver CC"] = normalize_code_column(df["Receiver CC"], fname)
-    df["%"] = parse_percent_column(df["%"], fname)
-    df = _normalize_cycle_ratios(df)
-    return df
+    cycle_df["Sender CC"] = normalize_code_column(cycle_df["Sender CC"], fname)
+    cycle_df["Receiver CC"] = normalize_code_column(cycle_df["Receiver CC"], fname)
+    cycle_df["%"] = parse_percent_column(cycle_df["%"], fname)
+    cycle_df = _normalize_cycle_ratios(cycle_df)
+    return cycle_df
 
 
 

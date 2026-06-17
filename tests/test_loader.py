@@ -39,6 +39,38 @@ def test_all_three_csvs_load(sample_paths):
     assert coa_df["Cost Center"].nunique() > 0
 
 
+def test_load_cycle_wide_to_long(tmp_path):
+    # Wide format: 차수/Sender CC id columns + one column per Receiver CC. Blank
+    # and 0 cells mean "no allocation" and must be dropped; the surviving rows
+    # are sorted by (차수, Sender CC) and each sender's ratios sum to 1.0.
+    p = tmp_path / "cycle.csv"
+    p.write_text(
+        "차수,Sender CC,1001,1002,1003,3001\n"
+        "1,1001,,0.3,0.7,\n"
+        "2,2001,0.5,0,,0.5\n",
+        encoding="utf-8",
+    )
+    df = load_cycle(p)
+
+    assert {"차수", "Sender CC", "Receiver CC", "%"} <= set(df.columns)
+    # 2 senders × 2 non-empty receivers each = 4 rows; blanks and the explicit 0
+    # are dropped.
+    assert len(df) == 4
+    # Sorted by (차수, Sender CC): 차수 1 group comes first.
+    assert df["차수"].tolist() == [1, 1, 2, 2]
+    # Cycle-1 sender 1001 allocates to 1002/1003 only (1001 and 3001 were blank).
+    cyc1 = df[df["차수"] == 1].set_index("Receiver CC")["%"]
+    assert set(cyc1.index) == {"1002", "1003"}
+    assert cyc1["1002"] == pytest.approx(0.3)
+    assert cyc1["1003"] == pytest.approx(0.7)
+    # Cycle-2 sender 2001 allocates to 1001/3001 only (1002=0, 1003 blank dropped).
+    cyc2 = df[df["차수"] == 2].set_index("Receiver CC")["%"]
+    assert set(cyc2.index) == {"1001", "3001"}
+    # Each sender's ratios sum to 1.0.
+    assert cyc1.sum() == pytest.approx(1.0)
+    assert cyc2.sum() == pytest.approx(1.0)
+
+
 def test_normalize_strips_trailing_zero():
     out = normalize_code_column(pd.Series(["7832.0"]))
     assert out.iloc[0] == "7832"
@@ -222,14 +254,16 @@ def test_load_mapping_reads_euc_kr(tmp_path):
 
 def test_load_cycle_reads_euc_kr(tmp_path):
     p = tmp_path / "cycle.csv"
-    # Korean header 차수 saved as EUC-KR. Single receiver gets 100% so the
-    # ratio-sum check in _normalize_cycle_ratios passes without error.
+    # Korean header 차수 saved as EUC-KR. Wide format: the single Receiver CC
+    # column (1002) gets 100% so the ratio-sum check in _normalize_cycle_ratios
+    # passes without error.
     p.write_text(
-        "차수,Sender CC,Receiver CC,%\n1,1001,1002,1.0\n", encoding="euc-kr"
+        "차수,Sender CC,1002\n1,1001,1.0\n", encoding="euc-kr"
     )
     df = load_cycle(p)
     assert {"차수", "Sender CC", "Receiver CC", "%"} <= set(df.columns)
     assert df["Sender CC"].iloc[0] == "1001"
+    assert df["Receiver CC"].iloc[0] == "1002"
 
 
 def test_load_mapping_still_reads_utf8_sig(tmp_path):
@@ -319,8 +353,8 @@ def test_load_mapping_missing_column_raises(tmp_path):
 
 def test_load_cycle_missing_column_raises(tmp_path):
     p = tmp_path / "cycle.csv"
-    # Missing the "%" column.
-    p.write_text("차수,Sender CC,Receiver CC\n1,1001,1002\n", encoding="utf-8")
+    # Wide format requires the id columns 차수 and Sender CC; here 차수 is missing.
+    p.write_text("Sender CC,1002\n1001,1.0\n", encoding="utf-8")
     with pytest.raises(ValueError, match="필수 컬럼"):
         load_cycle(p)
 
