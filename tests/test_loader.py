@@ -1,12 +1,15 @@
 """Tests for src.loader: CSV readers, code normalization, and path guard."""
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pandas as pd
 import pytest
 
 from src.loader import (
-    _validate_local_path, load_cc, load_coa_amount, load_cycle, load_mapping,
+    _validate_local_path, apply_category_dtypes, build_category_dtypes,
+    load_cc, load_coa_amount, load_cycle, load_mapping,
     normalize_code_column, parse_numeric_column, parse_percent_column,
 )
 
@@ -168,6 +171,65 @@ def test_load_mapping_unknown_encoding_raises(tmp_path):
     p.write_bytes(b"\xff\xff\xff\n")
     with pytest.raises(ValueError, match="인코딩"):
         load_mapping(p)
+
+
+# CATEGORY cross-sheet mismatch cases
+#
+# Casting a code column to a CategoricalDtype whose categories come from another
+# sheet drops codes that do not exist there to NaN. Since pandas 3.0 that cast
+# also emits a deprecation (a future version will raise), so apply_category_dtypes
+# masks unknowns first and reports exactly which codes were dropped.
+
+
+def _category_frames(cost_center="1001", 기존coa="6100"):
+    cc_df = pd.DataFrame({"CC": ["1001"]})
+    coa_df = pd.DataFrame(
+        {"COA": ["6100"], "Cost Center": [cost_center], "Amounts": [1.0]}
+    )
+    mapping_df = pd.DataFrame({"전기COA": ["E6100"], "기존COA": [기존coa]})
+    return cc_df, coa_df, mapping_df
+
+
+def test_apply_category_warns_on_cost_center_absent_from_master():
+    # Cost Center 9999 is not in the CC master, so it is reported and set to NaN.
+    cc_df, coa_df, mapping_df = _category_frames(cost_center="9999")
+    dtypes = build_category_dtypes(cc_df, coa_df, mapping_df)
+    with pytest.warns(UserWarning, match="CC 마스터에 없는 코드"):
+        _, coa_out, _ = apply_category_dtypes(
+            cc_df, coa_df, mapping_df, dtypes=dtypes
+        )
+    assert pd.isna(coa_out["Cost Center"].iloc[0])
+
+
+def test_apply_category_warns_on_base_coa_absent_from_amount_sheet():
+    # 기존COA 7777 is not in the amount sheet's COA, so it is reported and NaN.
+    cc_df, coa_df, mapping_df = _category_frames(기존coa="7777")
+    dtypes = build_category_dtypes(cc_df, coa_df, mapping_df)
+    with pytest.warns(UserWarning, match="공통비 금액 시트에 없는 코드"):
+        _, _, mapping_out = apply_category_dtypes(
+            cc_df, coa_df, mapping_df, dtypes=dtypes
+        )
+    assert pd.isna(mapping_out["기존COA"].iloc[0])
+
+
+def test_apply_category_no_future_warning_on_mismatch():
+    # The whole point of the fix: a cross-sheet mismatch must NOT emit the pandas
+    # deprecation (which would raise in a future version), only our UserWarning.
+    cc_df, coa_df, mapping_df = _category_frames(cost_center="9999")
+    dtypes = build_category_dtypes(cc_df, coa_df, mapping_df)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        apply_category_dtypes(cc_df, coa_df, mapping_df, dtypes=dtypes)
+    assert not any(issubclass(w.category, FutureWarning) for w in caught)
+
+
+def test_apply_category_clean_inputs_emit_no_warning():
+    # When every code matches across sheets, no warning of any kind fires.
+    cc_df, coa_df, mapping_df = _category_frames()
+    dtypes = build_category_dtypes(cc_df, coa_df, mapping_df)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        apply_category_dtypes(cc_df, coa_df, mapping_df, dtypes=dtypes)
 
 
 # FAILURE cases
