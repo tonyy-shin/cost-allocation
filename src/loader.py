@@ -113,6 +113,133 @@ def normalize_code_column(series: pd.Series, filename: str = "") -> pd.Series:
     )
 
 
+def _warn_lost_values(
+    original: pd.Series,
+    numeric: pd.Series,
+    *,
+    filename: str,
+    suffix: str,
+) -> None:
+    """Warn about values that became NaN during numeric coercion.
+
+    Mirrors the lost-value detection in normalize_code_column: a value that was
+    non-empty before conversion but NaN afterwards was silently dropped by the
+    coerce, so it is surfaced to the user. Genuinely empty or missing cells are
+    excluded so they do not generate noise.
+
+    Parameters
+    ----------
+    original : pd.Series
+        The column as read, before numeric conversion.
+    numeric : pd.Series
+        The coerced numeric column.
+    filename : str
+        Source CSV filename for the warning message ("" when unknown).
+    suffix : str
+        Trailing sentence describing what happens to the unconverted values.
+    """
+    before = original.astype(str).str.strip()
+    lost_mask = (
+        before.notna()
+        & (before != "")
+        & (before != "nan")
+        & numeric.isna()
+    )
+    lost_values = original[lost_mask].astype(str).unique().tolist()
+    if lost_values:
+        col_name = original.name if original.name is not None else "값"
+        file_hint = f"{filename} " if filename else ""
+        warnings.warn(
+            f"{file_hint}{col_name} 컬럼에서 숫자로 변환되지 않은 값이 있습니다: "
+            f"{lost_values} {suffix}"
+        )
+
+
+def parse_numeric_column(series: pd.Series, filename: str = "") -> pd.Series:
+    """Parse Excel-exported numeric text ('5,000,000') into float64.
+
+    Excel cells formatted as "Number" with a thousands separator are written to
+    CSV as comma-grouped, quoted text (e.g. "5,000,000"), which pandas keeps as
+    str rather than a number. Stripping the commas before pd.to_numeric lets
+    these values survive the CSV round-trip. Unconvertible values become NaN and
+    trigger a warning.
+
+    Parameters
+    ----------
+    series : pd.Series
+        Amount column, possibly read as str.
+    filename : str, optional
+        Source CSV filename, used only to make the conversion warning more
+        helpful. Defaults to "" when the caller does not have it.
+
+    Returns
+    -------
+    pd.Series
+        float64 column. Unparseable entries are NaN.
+    """
+    cleaned = series.astype(str).str.replace(",", "", regex=False).str.strip()
+    numeric = pd.to_numeric(cleaned, errors="coerce")
+    _warn_lost_values(
+        series,
+        numeric,
+        filename=filename,
+        suffix="해당 값은 NaN으로 처리됩니다.",
+    )
+    return numeric
+
+
+def parse_percent_column(series: pd.Series, filename: str = "") -> pd.Series:
+    """Parse the cycle '%' column into a decimal ratio (0.3 = 30%).
+
+    Excel cells formatted as "Percentage" are written to CSV with a trailing '%'
+    (e.g. "30%"), while values entered as plain decimals are written as-is
+    ("0.3"). Entries ending in '%' have the sign stripped and are divided by 100;
+    all other entries are treated as already-decimal ratios. A plain "30"
+    (no '%') is intentionally left as 30.0 rather than guessed to be 0.3 — only a
+    separate warning is emitted for values above 1.0. Unconvertible values become
+    NaN and trigger a warning.
+
+    Parameters
+    ----------
+    series : pd.Series
+        '%' column, possibly read as str.
+    filename : str, optional
+        Source CSV filename, used only to make the warning messages more
+        helpful. Defaults to "" when the caller does not have it.
+
+    Returns
+    -------
+    pd.Series
+        float64 decimal ratios. Unparseable entries are NaN.
+    """
+    s = series.astype(str).str.strip()
+    has_pct = s.str.endswith("%")
+    cleaned = s.str.rstrip("%").str.replace(",", "", regex=False).str.strip()
+    numeric = pd.to_numeric(cleaned, errors="coerce")
+    result = numeric.where(~has_pct, numeric / 100.0)
+
+    _warn_lost_values(
+        series,
+        result,
+        filename=filename,
+        suffix="소수(0.3) 또는 백분율(30%) 형식인지 확인하세요.",
+    )
+
+    # A value above 1.0 with no '%' sign is likely a percentage typed as a whole
+    # number (e.g. "30" meaning 0.3). It is not auto-corrected; only flagged.
+    suspicious = (~has_pct) & result.notna() & (result > 1.0)
+    if suspicious.any():
+        bad = series[suspicious].astype(str).unique().tolist()
+        col_name = series.name if series.name is not None else "%"
+        file_hint = f"{filename} " if filename else ""
+        warnings.warn(
+            f"{file_hint}{col_name} 컬럼에 1을 초과하는 값이 있습니다: {bad} "
+            f"소수(0.3) 형식인지 확인하세요."
+        )
+
+    return result
+
+
 # Step 1: CSV readers
 
 
@@ -172,6 +299,7 @@ def load_coa_amount(path: Path) -> pd.DataFrame:
     fname = os.path.basename(path)
     df["COA"] = normalize_code_column(df["COA"], fname)
     df["Cost Center"] = normalize_code_column(df["Cost Center"], fname)
+    df["Amounts"] = parse_numeric_column(df["Amounts"], fname)
     return df
 
 
@@ -217,7 +345,8 @@ def load_cycle(path: Path) -> pd.DataFrame:
     -------
     pd.DataFrame
         Columns: 차수 (int64), Sender CC (str), Receiver CC (str), % (float64)
-        The % column is kept as-is in decimal form (0.3 = 30%).
+        The % column is normalized to decimal form via parse_percent_column
+        (e.g. "30%" -> 0.3, "0.3" -> 0.3).
         Sender CC and Receiver CC have normalize_code_column applied.
     """
     _validate_local_path(path)
@@ -235,6 +364,7 @@ def load_cycle(path: Path) -> pd.DataFrame:
     fname = os.path.basename(path)
     df["Sender CC"] = normalize_code_column(df["Sender CC"], fname)
     df["Receiver CC"] = normalize_code_column(df["Receiver CC"], fname)
+    df["%"] = parse_percent_column(df["%"], fname)
     return df
 
 

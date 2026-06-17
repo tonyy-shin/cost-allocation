@@ -10,7 +10,13 @@ All processing runs locally. No data is transmitted externally for security reas
 
 ## Input Files
 
-Four CSV files are required. Encoding must be **UTF-8 (with or without BOM)**.
+Four CSV files are required. Encoding must be **UTF-8 (with or without BOM)** or EUC-KR.
+
+> **Excel cell formatting**: Saving amount columns with Excel's "Number" format
+> (thousands separator, e.g. `5,000,000`) or the `%` column with the "Percentage"
+> format (e.g. `30%`) still works — the loader strips the separators and the `%`
+> sign automatically. For the most predictable results, the **"General" format
+> with plain decimal input** is recommended (`5000000`, `0.3`).
 
 ### 1. CC Master — `cc.csv`
 
@@ -122,6 +128,10 @@ combinations with no allocation are filled with 0.
   파일명을 포함한 오류 메시지가 표시되고 실행이 중단됩니다.
 - **비숫자 코드 경고**: COA 또는 CC 컬럼에 숫자로 변환할 수 없는 값이 있으면
   경고가 표시됩니다. 해당 행은 매핑에서 제외됩니다.
+- **숫자/백분율 변환 경고**: Amounts 또는 `%` 컬럼에 숫자로 변환할 수 없는 값이
+  있으면 경고가 표시되고 해당 값은 NaN으로 처리됩니다. `%` 컬럼에 기호 없이
+  1을 초과하는 값(예: 0.3 대신 30)이 있으면 자동 보정 없이 별도 경고만
+  표시되므로 소수 형식인지 확인하세요.
 
 ---
 
