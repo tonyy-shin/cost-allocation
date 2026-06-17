@@ -13,7 +13,7 @@ from src.allocation import (
     aggregate_received_by_cycle, build_pivot_matrix,
     decompose_to_original_coa, run_allocation_loop,
 )
-from src.output import build_result, save_result
+from src.output import build_result, save_result, save_snapshots
 
 TEST_PATHS = {
     "coa_amount": Path("sample_data/coa_amount.csv"),
@@ -51,6 +51,9 @@ common_decomposed = decompose_to_original_coa(received_by_cycle, df_ratio)
 n_cycles = cycle_df["차수"].nunique()
 result = build_result(common_decomposed, df_direct, n_cycles)
 out_path = save_result(result, TEST_PATHS["output_dir"])
+snapshot_paths = save_snapshots(result, TEST_PATHS["output_dir"], n_cycles)
 
 print(result.to_string())
 print(f"\nSaved: {out_path}")
+for p in snapshot_paths:
+    print(f"Saved: {p}")

@@ -106,3 +106,40 @@ def save_result(result_df: pd.DataFrame, output_dir: Path) -> Path:
     out_path = output_dir / "result.csv"
     result_df.to_csv(out_path, index=False, encoding="utf-8-sig")
     return out_path
+
+
+def save_snapshots(result_df: pd.DataFrame, output_dir: Path, n_cycles: int) -> list[Path]:
+    """Save per-cycle cumulative snapshot CSVs.
+
+    result_1차.csv : 전기COA, 기존COA, 코스트센터, 1차배분금액, 배부합계
+    result_2차.csv : 전기COA, 기존COA, 코스트센터, 1차배분금액, 2차배분금액, 배부합계
+    ...
+    배부합계 is recomputed as the sum of the cycle columns included in that
+    snapshot, so each file is internally consistent.
+
+    Parameters
+    ----------
+    result_df  : build_result output.
+    output_dir : Directory where the files will be saved.
+    n_cycles   : Number of allocation cycles (one snapshot per cycle).
+
+    Returns
+    -------
+    list[Path]
+        Full paths of the saved snapshot files, in cycle order.
+    """
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    key_cols = ["전기COA", "기존COA", "코스트센터"]
+    paths: list[Path] = []
+    for i in range(1, n_cycles + 1):
+        alloc_cols = [alloc_col(j) for j in range(1, i + 1)]
+        snapshot = result_df[key_cols + alloc_cols].copy()
+        snapshot[TOTAL_COL] = snapshot[alloc_cols].sum(axis=1)
+        snapshot = snapshot[key_cols + alloc_cols + [TOTAL_COL]]
+
+        out_path = output_dir / f"result_{i}차.csv"
+        snapshot.to_csv(out_path, index=False, encoding="utf-8-sig")
+        paths.append(out_path)
+    return paths
