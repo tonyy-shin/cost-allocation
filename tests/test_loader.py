@@ -335,6 +335,21 @@ def test_apply_category_clean_inputs_emit_no_warning():
 # FAILURE cases
 
 
+def test_load_coa_amount_drops_blank_cost_center(tmp_path):
+    p = tmp_path / "coa.csv"
+    # The first row has a blank Cost Center; it must be dropped so it never
+    # becomes an empty-CC row in the by_cc output.
+    p.write_text(
+        "COA,Cost Center,Amounts\n"
+        "6100,,0\n"
+        "6100,1001,500\n",
+        encoding="utf-8",
+    )
+    df = load_coa_amount(p)
+    assert "" not in set(df["Cost Center"])
+    assert df["Cost Center"].tolist() == ["1001"]
+
+
 def test_load_coa_amount_missing_column_raises(tmp_path):
     p = tmp_path / "coa.csv"
     # Missing the "Amounts" column.
