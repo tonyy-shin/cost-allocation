@@ -159,34 +159,3 @@ def build_enriched(
         df.rename(columns = {"COA": "기존COA"})
           [["전기COA", "기존COA", "Cost Center", "Amounts"]]
     )
-
-
-# Input validation
-
-
-def validate_cycle_cc(
-    cycle_df: pd.DataFrame,
-    coa_df: pd.DataFrame,
-) -> list[str]:
-    """Check that every Sender and Receiver CC in the cycle sheet exists in the master.
-
-    The CC master is coa_amount.csv itself; valid CCs are its ``Cost Center``
-    unique values. There is no separate cc.csv master file.
-
-    Parameters
-    ----------
-    cycle_df : load_cycle result.
-    coa_df   : load_coa_amount result (Cost Center column is the CC list).
-
-    Returns
-    -------
-    list[str]
-        CC codes not found in the master. Empty list means validation passed.
-    """
-    master = set(coa_df["Cost Center"])
-    cycle_ccs = pd.concat([
-        cycle_df["Sender CC"],
-        cycle_df["Receiver CC"],
-    ]).unique()
-
-    return sorted(cc for cc in cycle_ccs if cc not in master)

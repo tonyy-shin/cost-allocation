@@ -1,6 +1,5 @@
 from __future__ import annotations
 import sys
-from tkinter import messagebox
 from src.ui import prompt_file_paths, show_completion
 import warnings
 
@@ -21,7 +20,6 @@ from src.prepare import (
     apply_override,
     build_enriched,
     fill_missing_cycle_cc,
-    validate_cycle_cc,
 )
 
 
@@ -34,14 +32,13 @@ def _load_inputs(
     paths: dict,
     notes: list[str],
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, float]]:
-    """Steps 1–2: load files, validate cycle CCs, apply dtypes.
+    """Steps 1–2: load files, apply overrides/fills, apply dtypes.
 
     Returns (coa_df, mapping_df, cycle_df, pre_alloc_cc). The CC list is taken
     from coa_df["Cost Center"]; there is no separate CC master file. The
     pre_allocation amounts are summed by Cost Center (load_pre_allocation) and
     feed only the by_cc output's 배부전금액 column.
-    Appends a note to `notes` if the user continues past unknown CCs.
-    Raises PipelineAborted if the user declines to continue.
+    Raises PipelineAborted if any input file fails validation.
     """
     validation_errors: list[str] = []
 
@@ -79,23 +76,9 @@ def _load_inputs(
     # category sets are unchanged.
     coa_df = apply_override(coa_df, override_df)
 
-    unknown_ccs = validate_cycle_cc(cycle_df, coa_df)
-    if unknown_ccs:
-        msg = (
-            f"다음 CC가 마스터에서 발견되지 않았습니다:\n"
-            f"{', '.join(unknown_ccs)}\n\n"
-            f"계속 진행하시겠습니까?"
-        )
-        if not messagebox.askyesno("알 수 없는 CC 경고", msg):
-            raise PipelineAborted("실행이 중단되었습니다: cycle 시트에 알 수 없는 CC가 있습니다.")
-        notes.append(
-            "cycle 시트에서 알 수 없는 CC 발견 (계속 진행): "
-            + ", ".join(unknown_ccs)
-        )
-
     # Insert zero-amount rows for cycle CCs missing from the master so they still
-    # appear in by_cc and receive their allocations. Done after the unknown-CC
-    # prompt (its typo safety net is kept) and before dtype harmonization.
+    # appear in by_cc and receive their allocations. A cycle CC absent from the
+    # master is expected (no validation), and this runs before dtype harmonization.
     coa_df = fill_missing_cycle_cc(coa_df, cycle_df)
 
     dtypes = build_category_dtypes(coa_df, mapping_df)
