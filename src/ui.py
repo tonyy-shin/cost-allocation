@@ -7,13 +7,17 @@ from tkinter.scrolledtext import ScrolledText
 from pathlib import Path
 
 
+# Field labels intentionally match the template file names shipped in
+# release/templates so users can tell at a glance which template goes in which
+# box (e.g. the "coa_amount" box takes coa_amount.csv). The output directory is
+# not a template file, so it keeps its descriptive Korean label.
 _FIELDS = [
-    ("coa_amount",      "COA·CC 마스터",     "file"),
-    ("override_amount", "실제 배부대상 금액", "file"),
-    ("mapping",         "전기 매핑",         "file"),
-    ("cycle",           "Cycle",            "file"),
-    ("pre_allocation",  "배부전 금액",       "file"),
-    ("output_dir",      "결과 저장 폴더",    "dir"),
+    ("coa_amount",      "coa_amount",      "file"),
+    ("override_amount", "override_amount", "file"),
+    ("mapping",         "mapping",         "file"),
+    ("cycle",           "cycle",           "file"),
+    ("pre_allocation",  "pre_allocation",  "file"),
+    ("output_dir",      "결과 저장 폴더",   "dir"),
 ]
 
 _CONFIG_PATH = Path.home() / ".cost-allocation" / "last_paths.json"
@@ -107,7 +111,7 @@ def prompt_file_paths() -> dict[str, Path] | None:
         var.trace_add("write", _update_run)
 
     for row, (key, label, kind) in enumerate(_FIELDS):
-        tk.Label(root, text=label, anchor="w", width=14).grid(
+        tk.Label(root, text=label, anchor="w", width=16).grid(
             row=row, column=0, padx=(12, 4), pady=5, sticky="w"
         )
         tk.Entry(root, textvariable=path_vars[key], width=52, state="readonly").grid(
