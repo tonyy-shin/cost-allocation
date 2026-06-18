@@ -8,6 +8,31 @@ import pandas as pd
 # Save the two-branch result tree (by_coa / by_cc)
 
 
+def append_total_row(df: pd.DataFrame) -> pd.DataFrame:
+    """Append a display-only totals row to a by_cc snapshot.
+
+    배부전금액 and 배부합계 are summed and rounded to integers; CC and the
+    per-cycle 후금액 columns are left blank. Individual rows are untouched and a
+    new frame is returned (the input is not mutated). Applied only when writing
+    the CSV, so the in-memory by_cc frames (used for conservation checks) keep
+    one row per CC.
+
+    Parameters
+    ----------
+    df : One by_cc per-cycle snapshot. Must contain 배부전금액 and 배부합계.
+
+    Returns
+    -------
+    pd.DataFrame
+        df with a totals row concatenated at the bottom.
+    """
+    total = {col: "" for col in df.columns}
+    total["배부전금액"] = int(round(df["배부전금액"].sum(), 0))
+    total["배부합계"] = int(round(df["배부합계"].sum(), 0))
+    total_row = pd.DataFrame([total], columns=df.columns)
+    return pd.concat([df, total_row], ignore_index=True)
+
+
 def save_results(
     by_coa_df: pd.DataFrame,
     by_cc_files: dict[int, pd.DataFrame],
@@ -40,6 +65,7 @@ def save_results(
 
     by_coa_df.to_csv(by_coa_dir / "result.csv", index=False, encoding="utf-8-sig")
     for n, df in by_cc_files.items():
-        df.to_csv(by_cc_dir / f"{n}차배부후.csv", index=False, encoding="utf-8-sig")
+        out_df = append_total_row(df)
+        out_df.to_csv(by_cc_dir / f"{n}차배부후.csv", index=False, encoding="utf-8-sig")
 
     return output_dir
