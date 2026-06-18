@@ -6,27 +6,19 @@ import warnings
 
 import pandas as pd
 
-from src.allocation import (
-    build_pivot_matrix,
-    decompose_sender_to_original_coa,
-    run_allocation_loop,
-)
+from src.allocation import build_by_coa, build_by_cc
 from src.loader import (
     apply_category_dtypes,
     build_category_dtypes,
     load_coa_amount,
     load_cycle,
     load_mapping,
+    load_pre_allocation,
 )
-from src.output import build_result, save_result
+from src.output import save_results
 from src.prepare import (
-    aggregate_detail,
-    aggregate_for_allocation,
-    assign_transfer_coa,
-    calculate_coa_ratio,
-    separate_common_direct,
+    build_enriched,
     validate_cycle_cc,
-    validate_sender_coverage,
 )
 
 
@@ -38,17 +30,20 @@ class PipelineAborted(Exception):
 def _load_inputs(
     paths: dict,
     notes: list[str],
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, float]]:
     """Steps 1–2: load files, validate cycle CCs, apply dtypes.
 
-    Returns (coa_df, mapping_df, cycle_df). The CC list is taken from
-    coa_df["Cost Center"]; there is no separate CC master file.
+    Returns (coa_df, mapping_df, cycle_df, pre_alloc_cc). The CC list is taken
+    from coa_df["Cost Center"]; there is no separate CC master file. The
+    pre_allocation amounts are summed by Cost Center (load_pre_allocation) and
+    feed only the by_cc output's 배부전금액 column.
     Appends a note to `notes` if the user continues past unknown CCs.
     Raises PipelineAborted if the user declines to continue.
     """
     validation_errors: list[str] = []
 
     coa_df = mapping_df = cycle_df = None
+    pre_alloc_cc: dict[str, float] = {}
     try:
         coa_df = load_coa_amount(paths["coa_amount"])
     except ValueError as e:
@@ -59,6 +54,10 @@ def _load_inputs(
         validation_errors.append(str(e))
     try:
         cycle_df = load_cycle(paths["cycle"])
+    except ValueError as e:
+        validation_errors.append(str(e))
+    try:
+        pre_alloc_cc = load_pre_allocation(paths["pre_allocation"])
     except ValueError as e:
         validation_errors.append(str(e))
 
@@ -84,57 +83,18 @@ def _load_inputs(
     dtypes = build_category_dtypes(coa_df, mapping_df)
     coa_df, mapping_df = apply_category_dtypes(coa_df, mapping_df, dtypes=dtypes)
 
-    return coa_df, mapping_df, cycle_df
-
-
-
-
-def _prepare_costs(
-    coa_df: pd.DataFrame,
-    mapping_df: pd.DataFrame,
-    cycle_df: pd.DataFrame,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Steps 3–6: separate common/direct, aggregate, compute base COA ratios.
-
-    Returns (df_direct, df_5b, df_ratio).
-    """
-    enriched = assign_transfer_coa(coa_df, mapping_df)
-    df_common, df_direct = separate_common_direct(enriched)
-
-    df_5a = aggregate_detail(df_common)
-    df_5b = aggregate_for_allocation(df_5a)
-    df_ratio = calculate_coa_ratio(df_5a)
-
-    return df_direct, df_5b, df_ratio
-
-
-
-def _run_allocation(
-    df_5b: pd.DataFrame,
-    df_ratio: pd.DataFrame,
-    cc_list: list[str],
-    cycle_df: pd.DataFrame,
-) -> pd.DataFrame:
-    """Steps 7–9: build pivot, run sequential allocation, decompose to base COA.
-
-    Returns the sender-side decomposition: one row per
-    (차수, 전기COA, 기존COA, Sender CC) describing each sender's distribution.
-    """
-    pivot = build_pivot_matrix(df_5b, cc_list)
-    _, _, sender_delta_by_cycle = run_allocation_loop(pivot, cycle_df)
-
-    return decompose_sender_to_original_coa(sender_delta_by_cycle, df_ratio)
+    return coa_df, mapping_df, cycle_df, pre_alloc_cc
 
 
 
 def main() -> None:
-    """Entry point. Runs UI -> load -> allocate -> save in sequence.
+    """Entry point. Runs UI -> load -> build outputs -> save in sequence.
 
     The whole pipeline runs inside a warnings.catch_warnings(record=True)
-    block so that warnings emitted by warnings.warn (sender-balance and
-    conservation checks) are collected instead of printed. Manual notes
-    (e.g. unknown-CC continue) are merged in. The outcome is reported via
-    a completion dialog: success / warning / failure.
+    block so that warnings emitted by warnings.warn (loader data-quality
+    checks) are collected instead of printed. Manual notes (e.g. unknown-CC
+    continue) are merged in. The outcome is reported via a completion dialog:
+    success / warning / failure.
     """
     paths = prompt_file_paths()
     if paths is None:
@@ -145,16 +105,15 @@ def main() -> None:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
 
-            coa_df, mapping_df, cycle_df = _load_inputs(paths, notes)
-            # Direct costs are not part of the sender-keyed result, so the
-            # df_direct from _prepare_costs is intentionally discarded.
-            _, df_5b, df_ratio = _prepare_costs(coa_df, mapping_df, cycle_df)
+            coa_df, mapping_df, cycle_df, pre_alloc_cc = _load_inputs(paths, notes)
 
-            cc_list = coa_df["Cost Center"].unique().tolist()
-            sender_decomposed = _run_allocation(df_5b, df_ratio, cc_list, cycle_df)
+            cc_list = coa_df["Cost Center"].astype(str).unique().tolist()
+            enriched = build_enriched(coa_df, mapping_df)
 
-            result = build_result(sender_decomposed)
-            out_path = save_result(result, paths["output_dir"])
+            by_coa_df, sender_totals = build_by_coa(enriched, cycle_df)
+            by_cc_files = build_by_cc(cc_list, pre_alloc_cc, cycle_df, sender_totals)
+
+            out_path = save_results(by_coa_df, by_cc_files, paths["output_dir"])
 
         messages = notes + [str(w.message) for w in caught]
 
@@ -171,7 +130,6 @@ def main() -> None:
         show_completion("success", out_path=out_path)
 
 
-    
 
 
 if __name__ == "__main__":

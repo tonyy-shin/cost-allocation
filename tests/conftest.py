@@ -1,8 +1,8 @@
 """Shared pytest fixtures for the cost-allocation pipeline tests.
 
-The fixtures mirror the wiring in test_run.py so individual test modules can
-request just the stage they care about (loaded inputs, or the full pipeline
-output) without re-deriving the plumbing.
+The fixtures mirror the wiring in main.py so individual test modules can request
+just the stage they care about (loaded inputs, or the full pipeline output)
+without re-deriving the plumbing.
 """
 from __future__ import annotations
 
@@ -20,59 +20,55 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from src.loader import (  # noqa: E402
     apply_category_dtypes, build_category_dtypes,
-    load_coa_amount, load_cycle, load_mapping,
+    load_coa_amount, load_cycle, load_mapping, load_pre_allocation,
 )
-from src.prepare import (  # noqa: E402
-    aggregate_detail, aggregate_for_allocation,
-    assign_transfer_coa, calculate_coa_ratio, separate_common_direct,
-)
-from src.allocation import (  # noqa: E402
-    aggregate_received_by_cycle, build_pivot_matrix,
-    decompose_sender_to_original_coa, decompose_to_original_coa,
-    run_allocation_loop,
-)
-from src.output import build_result  # noqa: E402
+from src.prepare import build_enriched  # noqa: E402
+from src.allocation import build_by_coa, build_by_cc  # noqa: E402
 
 
 @pytest.fixture
 def sample_paths() -> dict[str, Path]:
-    """TEST_PATHS dict pointing at the sample_data CSVs (cf. test_run.py 18-24)."""
+    """Paths to the sample_data CSVs (cf. main._load_inputs)."""
     base = PROJECT_ROOT / "sample_data"
     return {
-        "coa_amount": base / "coa_amount.csv",
-        "mapping":    base / "mapping.csv",
-        "cycle":      base / "cycle.csv",
-        "output_dir": base / "output",
+        "coa_amount":     base / "coa_amount.csv",
+        "mapping":        base / "mapping.csv",
+        "cycle":          base / "cycle.csv",
+        "pre_allocation": base / "pre_allocation.csv",
+        "output_dir":     base / "output",
     }
 
 
 @pytest.fixture
 def loaded_inputs(sample_paths) -> dict:
-    """Run loaders + dtype harmonization (test_run.py steps 1-2).
+    """Run loaders + dtype harmonization (main._load_inputs).
 
     The CC list is derived from the COA·CC master's Cost Center column; there is
-    no separate CC master file and no CC enrichment step.
+    no separate CC master file. pre_allocation is summed by Cost Center.
 
     Returns
     -------
     dict with keys:
-        coa_df, mapping_df, cycle_df, raw_coa_df, cc_list, cat_dtypes
+        coa_df, mapping_df, cycle_df, pre_alloc_cc, raw_coa_df, cc_list,
+        cat_dtypes
     """
     coa_df = load_coa_amount(sample_paths["coa_amount"])
     mapping_df = load_mapping(sample_paths["mapping"])
     cycle_df = load_cycle(sample_paths["cycle"])
+    pre_alloc_cc = load_pre_allocation(sample_paths["pre_allocation"])
 
     cat_dtypes = build_category_dtypes(coa_df, mapping_df)
     coa_df, mapping_df = apply_category_dtypes(
         coa_df, mapping_df, dtypes=cat_dtypes
     )
     raw_coa_df = coa_df
-    cc_list = coa_df["Cost Center"].unique().tolist()
+    cc_list = coa_df["Cost Center"].astype(str).unique().tolist()
 
     return {
         "coa_df": coa_df,
         "mapping_df": mapping_df,
         "cycle_df": cycle_df,
+        "pre_alloc_cc": pre_alloc_cc,
         "raw_coa_df": raw_coa_df,
         "cc_list": cc_list,
         "cat_dtypes": cat_dtypes,
@@ -81,52 +77,26 @@ def loaded_inputs(sample_paths) -> dict:
 
 @pytest.fixture
 def pipeline_outputs(loaded_inputs) -> dict:
-    """Run the full pipeline through build_result (test_run.py steps 3-12).
+    """Run the full pipeline through both output builders (main.main).
 
     Returns
     -------
     dict with keys:
-        df_direct, df_5a, df_5b, df_ratio, pivot, delta_by_cycle,
-        sender_delta_by_cycle, received_by_cycle, decomposed,
-        sender_decomposed, result
+        enriched, by_coa_df, sender_totals, by_cc_files
     """
     coa_df = loaded_inputs["coa_df"]
     mapping_df = loaded_inputs["mapping_df"]
     cycle_df = loaded_inputs["cycle_df"]
-    raw_coa_df = loaded_inputs["raw_coa_df"]
+    pre_alloc_cc = loaded_inputs["pre_alloc_cc"]
     cc_list = loaded_inputs["cc_list"]
 
-    enriched = assign_transfer_coa(coa_df, mapping_df)
-    df_common, df_direct = separate_common_direct(enriched)
-    df_5a = aggregate_detail(df_common)
-    df_5b = aggregate_for_allocation(df_5a)
-    df_ratio = calculate_coa_ratio(df_5a)
-
-    pivot = build_pivot_matrix(df_5b, cc_list)
-    _, delta_by_cycle, sender_delta_by_cycle = run_allocation_loop(pivot, cycle_df)
-
-    # Receiver-side decomposition. No longer feeds `result` (the production
-    # pipeline dropped it); kept here solely to supply the receiver-side tests
-    # in test_allocation.py (received_by_cycle / decomposed assertions).
-    received_by_cycle = aggregate_received_by_cycle(delta_by_cycle)
-    decomposed = decompose_to_original_coa(received_by_cycle, df_ratio)
-
-    # Sender-side decomposition: the basis for the final result grid.
-    sender_decomposed = decompose_sender_to_original_coa(
-        sender_delta_by_cycle, df_ratio
-    )
-    result = build_result(sender_decomposed)
+    enriched = build_enriched(coa_df, mapping_df)
+    by_coa_df, sender_totals = build_by_coa(enriched, cycle_df)
+    by_cc_files = build_by_cc(cc_list, pre_alloc_cc, cycle_df, sender_totals)
 
     return {
-        "df_direct": df_direct,
-        "df_5a": df_5a,
-        "df_5b": df_5b,
-        "df_ratio": df_ratio,
-        "pivot": pivot,
-        "delta_by_cycle": delta_by_cycle,
-        "sender_delta_by_cycle": sender_delta_by_cycle,
-        "received_by_cycle": received_by_cycle,
-        "decomposed": decomposed,
-        "sender_decomposed": sender_decomposed,
-        "result": result,
+        "enriched": enriched,
+        "by_coa_df": by_coa_df,
+        "sender_totals": sender_totals,
+        "by_cc_files": by_cc_files,
     }
