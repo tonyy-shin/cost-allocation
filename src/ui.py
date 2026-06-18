@@ -8,11 +8,12 @@ from pathlib import Path
 
 
 _FIELDS = [
-    ("coa_amount",     "COA·CC 마스터",  "file"),
-    ("mapping",        "전기 매핑",      "file"),
-    ("cycle",          "Cycle",         "file"),
-    ("pre_allocation", "배부전 금액",    "file"),
-    ("output_dir",     "결과 저장 폴더", "dir"),
+    ("coa_amount",      "COA·CC 마스터",     "file"),
+    ("override_amount", "실제 배부대상 금액", "file"),
+    ("mapping",         "전기 매핑",         "file"),
+    ("cycle",           "Cycle",            "file"),
+    ("pre_allocation",  "배부전 금액",       "file"),
+    ("output_dir",      "결과 저장 폴더",    "dir"),
 ]
 
 _CONFIG_PATH = Path.home() / ".cost-allocation" / "last_paths.json"
@@ -66,6 +67,7 @@ def prompt_file_paths() -> dict[str, Path] | None:
     -------
     dict with keys:
         'coa_amount'     : Path  -- COA·CC master amount CSV
+        'override_amount': Path  -- override amount CSV (corrects master Amounts)
         'mapping'        : Path  -- transfer COA mapping CSV
         'cycle'          : Path  -- allocation cycle CSV
         'pre_allocation' : Path  -- pre-allocation amount CSV (by_cc 배부전금액)

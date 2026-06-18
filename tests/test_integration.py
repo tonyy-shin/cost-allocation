@@ -48,6 +48,18 @@ def test_end_to_end_hand_checked_cycle_flow(pipeline_outputs):
     assert after2("3001") == pytest.approx(3_500_000.0 * 0.5)
 
 
+def test_by_coa_amounts_nonzero_after_override(pipeline_outputs):
+    # The master (coa_amount.csv) holds 0 for the cycle sender/receiver combos;
+    # override_amount.csv supplies the real amounts. After the override, by_coa's
+    # per-cycle totals must be the real (non-zero) values, not 0.
+    by_coa = pipeline_outputs["by_coa_df"]
+
+    # 배부합계 columns carry a single column-wide scalar in row 0 only.
+    assert by_coa["1차배부합계"].iloc[0] == pytest.approx(7_000_000.0)
+    assert by_coa["2차배부합계"].iloc[0] == pytest.approx(3_500_000.0)
+    assert (by_coa["1차배부금액"].sum() + by_coa["2차배부금액"].sum()) != 0
+
+
 def test_no_unexpected_warnings_on_happy_path(loaded_inputs):
     # The build stage (enrichment + both output builders) is warning-free for
     # well-formed sample data.
