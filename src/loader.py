@@ -353,6 +353,26 @@ def load_coa_amount(path: Path) -> pd.DataFrame:
     return df
 
 
+def load_override_amount(path: Path) -> pd.DataFrame:
+    """Read the override amount CSV and return DataFrame.
+
+    The file shares coa_amount.csv's schema (COA, Cost Center, Amounts), so the
+    same reader is reused. Unlike load_pre_allocation it performs no aggregation;
+    the raw rows are returned so apply_override can match on (COA, Cost Center).
+
+    Parameters
+    ----------
+    path : Path
+        Path to override_amount.csv.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns: COA (str), Cost Center (str), Amounts (float64)
+    """
+    return load_coa_amount(path)
+
+
 def load_pre_allocation(path: Path) -> dict[str, float]:
     """Read pre_allocation.csv and sum Amounts by Cost Center.
 

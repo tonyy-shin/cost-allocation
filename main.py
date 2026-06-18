@@ -13,10 +13,12 @@ from src.loader import (
     load_coa_amount,
     load_cycle,
     load_mapping,
+    load_override_amount,
     load_pre_allocation,
 )
 from src.output import save_results
 from src.prepare import (
+    apply_override,
     build_enriched,
     validate_cycle_cc,
 )
@@ -42,7 +44,7 @@ def _load_inputs(
     """
     validation_errors: list[str] = []
 
-    coa_df = mapping_df = cycle_df = None
+    coa_df = mapping_df = cycle_df = override_df = None
     pre_alloc_cc: dict[str, float] = {}
     try:
         coa_df = load_coa_amount(paths["coa_amount"])
@@ -60,11 +62,21 @@ def _load_inputs(
         pre_alloc_cc = load_pre_allocation(paths["pre_allocation"])
     except ValueError as e:
         validation_errors.append(str(e))
+    try:
+        override_df = load_override_amount(paths["override_amount"])
+    except ValueError as e:
+        validation_errors.append(str(e))
 
     if validation_errors:
         for msg in validation_errors:
             notes.append(msg)
         raise PipelineAborted("입력 파일 검증에 실패했습니다.")
+
+    # Correct master amounts before CategoricalDtype harmonization, so both
+    # merge keys are still plain str (object). build_category_dtypes then derives
+    # categories from the corrected coa_df; override adds no rows, so the CC/COA
+    # category sets are unchanged.
+    coa_df = apply_override(coa_df, override_df)
 
     unknown_ccs = validate_cycle_cc(cycle_df, coa_df)
     if unknown_ccs:
