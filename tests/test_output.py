@@ -29,10 +29,10 @@ def test_append_total_row_adds_row_at_bottom():
     assert total["배부합계"] == 800_300
 
 
-def test_append_total_row_blanks_other_columns():
+def test_append_total_row_labels_cc_and_blanks_other_columns():
     result = append_total_row(_by_cc_sample())
     total = result.iloc[-1]
-    assert total["CC"] == ""
+    assert total["CC"] == "합계"
     assert total["1차후금액"] == ""
 
 
@@ -102,4 +102,4 @@ def test_save_results_by_cc_round_trips(pipeline_outputs, tmp_path):
     total = file1.iloc[-1]
     assert total["배부전금액"] == pytest.approx(expected["배부전금액"].sum())
     assert total["배부합계"] == pytest.approx(expected["배부합계"].sum())
-    assert pd.isna(total["CC"])  # blank cell reads back as NaN
+    assert total["CC"] == "합계"

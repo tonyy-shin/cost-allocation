@@ -1,4 +1,4 @@
-"""Tests for src.prepare: override, transfer-COA assignment, enrichment, CC validation."""
+"""Tests for src.prepare: override, transfer-COA assignment, enrichment."""
 from __future__ import annotations
 
 import pandas as pd
@@ -9,7 +9,6 @@ from src.prepare import (
     assign_transfer_coa,
     build_enriched,
     fill_missing_cycle_cc,
-    validate_cycle_cc,
 )
 
 
@@ -159,17 +158,3 @@ def test_build_enriched_preserves_amount_total(loaded_inputs):
     # Enrichment only relabels; the total amount is unchanged.
     enriched = build_enriched(loaded_inputs["coa_df"], loaded_inputs["mapping_df"])
     assert enriched["Amounts"].sum() == loaded_inputs["coa_df"]["Amounts"].sum()
-
-
-# FAILURE cases
-
-
-def test_validate_cycle_cc_returns_unknown_ccs(loaded_inputs):
-    cycle_df = pd.DataFrame({
-        "차수": [1, 1],
-        "Sender CC": ["1001", "9999"],
-        "Receiver CC": ["8888", "1002"],
-        "%": [0.5, 0.5],
-    })
-    unknown = validate_cycle_cc(cycle_df, loaded_inputs["coa_df"])
-    assert unknown == ["8888", "9999"]
