@@ -20,6 +20,7 @@ from src.output import save_results
 from src.prepare import (
     apply_override,
     build_enriched,
+    fill_missing_cycle_cc,
     validate_cycle_cc,
 )
 
@@ -91,6 +92,11 @@ def _load_inputs(
             "cycle 시트에서 알 수 없는 CC 발견 (계속 진행): "
             + ", ".join(unknown_ccs)
         )
+
+    # Insert zero-amount rows for cycle CCs missing from the master so they still
+    # appear in by_cc and receive their allocations. Done after the unknown-CC
+    # prompt (its typo safety net is kept) and before dtype harmonization.
+    coa_df = fill_missing_cycle_cc(coa_df, cycle_df)
 
     dtypes = build_category_dtypes(coa_df, mapping_df)
     coa_df, mapping_df = apply_category_dtypes(coa_df, mapping_df, dtypes=dtypes)

@@ -60,6 +60,24 @@ def test_by_coa_amounts_nonzero_after_override(pipeline_outputs):
     assert (by_coa["1차배부금액"].sum() + by_coa["2차배부금액"].sum()) != 0
 
 
+def test_cycle_only_cc_appears_in_by_cc(pipeline_outputs):
+    # 4001 is a receiver in cycle.csv but absent from coa_amount.csv. It must be
+    # filled in (배부전금액 0) and still receive its cycle-3 allocation (7,000,000).
+    file3 = pipeline_outputs["by_cc_files"][3]
+    row = file3[file3["CC"] == "4001"]
+    assert len(row) == 1
+    assert row["배부전금액"].iloc[0] == pytest.approx(0.0)
+    assert row["3차후금액"].iloc[0] == pytest.approx(7_000_000.0)
+    assert row["배부합계"].iloc[0] == pytest.approx(7_000_000.0)
+
+
+def test_cycle_only_cc_absent_from_by_coa(pipeline_outputs):
+    # COA is NaN for the filled CC, so it is a non-common row and must not appear
+    # in by_coa (which is keyed by 기존COA / Sender CC for common costs).
+    by_coa = pipeline_outputs["by_coa_df"]
+    assert "4001" not in set(by_coa["Sender CC"].astype(str))
+
+
 def test_no_unexpected_warnings_on_happy_path(loaded_inputs):
     # The build stage (enrichment + both output builders) is warning-free for
     # well-formed sample data.
