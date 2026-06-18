@@ -349,6 +349,9 @@ def load_coa_amount(path: Path) -> pd.DataFrame:
     fname = os.path.basename(path)
     df["COA"] = normalize_code_column(df["COA"], fname)
     df["Cost Center"] = normalize_code_column(df["Cost Center"], fname)
+    # Drop rows with a blank Cost Center: they would otherwise surface as an
+    # empty-CC row at the top of the by_cc output (cc_list comes from this column).
+    df = df[df["Cost Center"] != ""].reset_index(drop=True)
     df["Amounts"] = parse_numeric_column(df["Amounts"], fname)
     return df
 
