@@ -3,51 +3,43 @@ import warnings
 
 from src.loader import (
     apply_category_dtypes, build_category_dtypes,
-    load_coa_amount, load_cycle, load_mapping,
+    load_coa_amount, load_cycle, load_mapping, load_pre_allocation,
 )
-from src.prepare import (
-    aggregate_detail, aggregate_for_allocation,
-    assign_transfer_coa, calculate_coa_ratio, separate_common_direct,
-)
-from src.allocation import (
-    build_pivot_matrix, decompose_sender_to_original_coa, run_allocation_loop,
-)
-from src.output import build_result, save_result
+from src.prepare import build_enriched
+from src.allocation import build_by_coa, build_by_cc
+from src.output import save_results
 
 TEST_PATHS = {
-    "coa_amount": Path("sample_data/coa_amount.csv"),
-    "mapping":    Path("sample_data/mapping.csv"),
-    "cycle":      Path("sample_data/cycle.csv"),
-    "output_dir": Path("sample_data/output"),
+    "coa_amount":     Path("sample_data/coa_amount.csv"),
+    "mapping":        Path("sample_data/mapping.csv"),
+    "cycle":          Path("sample_data/cycle.csv"),
+    "pre_allocation": Path("sample_data/pre_allocation.csv"),
+    "output_dir":     Path("sample_data/output"),
 }
 
 warnings.simplefilter("always")
 
-# Steps 1-2
-coa_df     = load_coa_amount(TEST_PATHS["coa_amount"])
-mapping_df = load_mapping(TEST_PATHS["mapping"])
-cycle_df   = load_cycle(TEST_PATHS["cycle"])
+# Load
+coa_df       = load_coa_amount(TEST_PATHS["coa_amount"])
+mapping_df   = load_mapping(TEST_PATHS["mapping"])
+cycle_df     = load_cycle(TEST_PATHS["cycle"])
+pre_alloc_cc = load_pre_allocation(TEST_PATHS["pre_allocation"])
 
 dtypes = build_category_dtypes(coa_df, mapping_df)
 coa_df, mapping_df = apply_category_dtypes(coa_df, mapping_df, dtypes=dtypes)
-raw_coa_df = coa_df
 
-# Steps 3-6
-enriched = assign_transfer_coa(coa_df, mapping_df)
-df_common, _ = separate_common_direct(enriched)
-df_5a  = aggregate_detail(df_common)
-df_5b  = aggregate_for_allocation(df_5a)
-df_ratio = calculate_coa_ratio(df_5a)
+# Build outputs
+cc_list = coa_df["Cost Center"].astype(str).unique().tolist()
+enriched = build_enriched(coa_df, mapping_df)
+by_coa_df, sender_totals = build_by_coa(enriched, cycle_df)
+by_cc_files = build_by_cc(cc_list, pre_alloc_cc, cycle_df, sender_totals)
 
-# Steps 7-9
-cc_list = coa_df["Cost Center"].unique().tolist()
-pivot = build_pivot_matrix(df_5b, cc_list)
-_, _, sender_delta_by_cycle = run_allocation_loop(pivot, cycle_df)
-sender_decomposed = decompose_sender_to_original_coa(sender_delta_by_cycle, df_ratio)
+# Save
+out_path = save_results(by_coa_df, by_cc_files, TEST_PATHS["output_dir"])
 
-# Steps 10-12
-result = build_result(sender_decomposed)
-out_path = save_result(result, TEST_PATHS["output_dir"])
-
-print(result.to_string())
-print(f"\nSaved: {out_path}")
+print("=== by_coa/result.csv ===")
+print(by_coa_df.to_string(index=False))
+for n, df in by_cc_files.items():
+    print(f"\n=== by_cc/{n}차배부후.csv ===")
+    print(df.to_string(index=False))
+print(f"\nSaved under: {out_path}")

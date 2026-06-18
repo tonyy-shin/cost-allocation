@@ -1,14 +1,9 @@
-"""Tests for src.prepare: transfer-COA assignment, splitting, ratios, validators."""
+"""Tests for src.prepare: transfer-COA assignment, enrichment, CC validation."""
 from __future__ import annotations
 
 import pandas as pd
-import pytest
 
-from src.allocation import build_pivot_matrix, run_allocation_loop
-from src.prepare import (
-    assign_transfer_coa, calculate_coa_ratio, separate_common_direct,
-    validate_cycle_cc, validate_sender_coverage,
-)
+from src.prepare import assign_transfer_coa, build_enriched, validate_cycle_cc
 
 
 # SUCCESS cases
@@ -20,58 +15,28 @@ def test_assign_transfer_coa(loaded_inputs):
     assert (df.loc[df["COA"] == "6100", "전기COA"] == "E6100").all()
     assert (df.loc[df["COA"] == "6200", "전기COA"] == "E6200").all()
     # COAs absent from the mapping (direct costs) are left null (filled with ""
-    # only later, in separate_common_direct).
+    # only later, in build_enriched).
     assert df.loc[df["COA"] == "7100", "전기COA"].isna().all()
 
 
-def test_separate_common_direct(loaded_inputs):
-    df = assign_transfer_coa(loaded_inputs["coa_df"], loaded_inputs["mapping_df"])
-    df_common, df_direct = separate_common_direct(df)
+def test_build_enriched_columns_and_fill(loaded_inputs):
+    enriched = build_enriched(loaded_inputs["coa_df"], loaded_inputs["mapping_df"])
 
-    assert (df_common["전기COA"].astype(str) != "").all()
-    assert (df_direct["전기COA"].astype(str) == "").all()
+    # The original COA is exposed as 기존COA; fixed column order.
+    assert list(enriched.columns) == ["전기COA", "기존COA", "Cost Center", "Amounts"]
 
-
-def test_calculate_coa_ratio_sums_to_one(pipeline_outputs):
-    ratio_sums = (
-        pipeline_outputs["df_ratio"]
-        .groupby("전기COA", observed=True)["비중"]
-        .sum()
-    )
-    assert ratio_sums.to_numpy() == pytest.approx(1.0)
+    # Mapped COAs carry their 전기COA; direct costs get an empty string, not NaN.
+    mapped = enriched[enriched["기존COA"] == "6100"]
+    assert (mapped["전기COA"].astype(str) == "E6100").all()
+    direct = enriched[enriched["기존COA"] == "7100"]
+    assert (direct["전기COA"].astype(str) == "").all()
+    assert enriched["전기COA"].astype(str).ne("nan").all()
 
 
-def test_validate_sender_coverage_passes_when_all_senders():
-    # A common-cost CC that is also a registered sender produces no violation.
-    df_5b = pd.DataFrame(
-        {"전기COA": ["E6100"], "Cost Center": ["1001"], "Amounts": [100.0]}
-    )
-    cycle_df = pd.DataFrame(
-        {"차수": [1], "Sender CC": ["1001"], "Receiver CC": ["1002"], "%": [1.0]}
-    )
-    assert validate_sender_coverage(df_5b, cycle_df) == []
-
-
-def test_validate_sender_coverage_flags_unregistered(pipeline_outputs, loaded_inputs):
-    # In sample_data, CC 1002 holds 1.5M of common cost (COA 6200) but never
-    # appears as a Sender, so it is reported.
-    violators = validate_sender_coverage(
-        pipeline_outputs["df_5b"], loaded_inputs["cycle_df"]
-    )
-    assert violators == [("1002", 1500000.0)]
-
-
-# WARNING cases
-
-
-def test_run_allocation_loop_warns_for_non_sender_common_cost(
-    pipeline_outputs, loaded_inputs
-):
-    # CC 1002 carries common cost but is not a Sender -> its balance is never
-    # distributed, which the loop reports.
-    pivot = pipeline_outputs["pivot"]
-    with pytest.warns(UserWarning, match="1002"):
-        run_allocation_loop(pivot, loaded_inputs["cycle_df"])
+def test_build_enriched_preserves_amount_total(loaded_inputs):
+    # Enrichment only relabels; the total amount is unchanged.
+    enriched = build_enriched(loaded_inputs["coa_df"], loaded_inputs["mapping_df"])
+    assert enriched["Amounts"].sum() == loaded_inputs["coa_df"]["Amounts"].sum()
 
 
 # FAILURE cases

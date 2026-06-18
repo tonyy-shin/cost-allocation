@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import numpy as np
 import pandas as pd
 
 
@@ -35,142 +34,38 @@ def assign_transfer_coa(
     return df.drop(columns = ["기존COA"])
 
 
-# Step 4: Separate common and direct costs
+# Step 4: Build the enriched frame shared by both outputs
 
 
-def separate_common_direct(
-    df: pd.DataFrame,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Split rows into common costs and direct costs.
+def build_enriched(
+    coa_df: pd.DataFrame,
+    mapping_df: pd.DataFrame,
+) -> pd.DataFrame:
+    """Build the enriched frame used by both the by_coa and by_cc outputs.
 
-    Rows where 전기COA is NaN (direct costs) have their 전기COA filled with ""
-    before splitting. The empty string prevents NaN keys from being silently
-    dropped by groupby (which uses dropna=True by default).
+    Rows whose COA has a mapping entry receive the mapped 전기COA (common cost);
+    rows without a mapping entry get an empty-string 전기COA (direct cost). The
+    empty string keeps direct-cost rows out of the common-cost filter while still
+    surviving any groupby (which drops NaN keys by default).
 
     Parameters
     ----------
-    df : assign_transfer_coa result.
+    coa_df     : load_coa_amount result. Columns: COA, Cost Center, Amounts
+    mapping_df : load_mapping result. Columns: 전기COA, 기존COA
 
     Returns
     -------
-    (df_common, df_direct)
-        df_common : Rows where 전기COA is not null.
-        df_direct : Rows where 전기COA == "" (originally NaN).
+    pd.DataFrame
+        Columns: 전기COA, 기존COA, Cost Center, Amounts.
+        The original COA is exposed as 기존COA; 전기COA is "" for direct costs.
     """
+    df = assign_transfer_coa(coa_df, mapping_df)  # COA, Cost Center, Amounts, 전기COA
     dtype = df["전기COA"].dtype
     df = df.assign(전기COA = df["전기COA"].fillna("").astype(dtype))
-
-    df_common = df[df["전기COA"] != ""].copy()
-    df_direct = df[df["전기COA"] == ""].copy()
-    return df_common, df_direct
-
-
-
-# Step 5-A: Detail aggregation for ratio calculation
-
-
-def aggregate_detail(df_common: pd.DataFrame) -> pd.DataFrame:
-    """Sum common cost amounts by (transfer COA, base COA, Cost Center).
-
-    This is the reference dataset for Step 6 base-COA ratio calculation.
-    All groupby calls must use observed=True to avoid row explosion when
-    CategoricalDtype columns contain unobserved category combinations.
-
-    Parameters
-    ----------
-    df_common : df_common from separate_common_direct.
-
-    Returns
-    -------
-    pd.DataFrame
-        Columns: 전기COA, 기존COA, Cost Center, Amounts
-        Summed over (transfer COA x base COA x CC).
-    """
     return (
-        df_common
-        .groupby(["전기COA", "COA", "Cost Center"], observed = True)
-        ["Amounts"].sum()
-        .reset_index()
-        .rename(columns = {"COA": "기존COA"})
+        df.rename(columns = {"COA": "기존COA"})
+          [["전기COA", "기존COA", "Cost Center", "Amounts"]]
     )
-
-
-# Step 5-B: Allocation aggregation for allocation calculation
-
-
-def aggregate_for_allocation(df_5a: pd.DataFrame) -> pd.DataFrame:
-    """Re-sum Step 5-A results by (transfer COA, Cost Center).
-
-    Produces pivot input for Step 7. Base COA information is lost at this
-    step, so aggregate_detail must always be called before this function.
-    All groupby calls must use observed=True.
-
-    Parameters
-    ----------
-    df_5a : aggregate_detail result.
-
-    Returns
-    -------
-    pd.DataFrame
-        Columns: 전기COA, Cost Center, Amounts
-        Summed over (transfer COA x CC).
-    """
-    return (
-        df_5a
-        .groupby(["전기COA", "Cost Center"], observed = True)["Amounts"]
-        .sum()
-        .reset_index()
-    )
-
-
-# Step 6: Base COA ratio calculation
-
-
-def calculate_coa_ratio(df_5a: pd.DataFrame) -> pd.DataFrame:
-    """Compute each base COA's share within its transfer COA.
-
-    Per the allocation business rule, a received amount is decomposed back to
-    base COA using the SENDER's transfer COA composition; the receiver CC's own
-    amounts are irrelevant. The ratio therefore has no Cost Center dimension:
-
-        비중 = sum(Amounts | 전기COA, 기존COA) / sum(Amounts | 전기COA)
-
-    Fallback: when a transfer COA total is 0, its base COAs split evenly at
-    1 / n, where n is the number of distinct base COAs observed for that
-    transfer COA. The observed count (not the mapping-wide count) is used so the
-    shares always sum to 1 and the total amount is conserved on decomposition.
-
-    All groupby calls must use observed=True.
-
-    Parameters
-    ----------
-    df_5a : aggregate_detail result. Columns: 전기COA, 기존COA, Cost Center, Amounts
-
-    Returns
-    -------
-    pd.DataFrame
-        Columns: 전기COA, 기존COA, 비중. One row per (transfer COA, base COA) pair.
-    """
-    koa = (
-        df_5a.groupby(["전기COA", "기존COA"], observed = True)["Amounts"]
-        .sum()
-        .reset_index(name = "koa_total")
-    )
-    koa["ec_total"] = (
-        koa.groupby("전기COA", observed = True)["koa_total"].transform("sum")
-    )
-    koa["n_coa"] = (
-        koa.groupby("전기COA", observed = True)["기존COA"].transform("count")
-    )
-
-    with np.errstate(divide = "ignore", invalid = "ignore"):
-        koa["비중"] = np.where(
-            koa["ec_total"] != 0,
-            koa["koa_total"] / koa["ec_total"],
-            1.0 / koa["n_coa"],
-        )
-
-    return koa[["전기COA", "기존COA", "비중"]]
 
 
 # Input validation
@@ -182,8 +77,8 @@ def validate_cycle_cc(
 ) -> list[str]:
     """Check that every Sender and Receiver CC in the cycle sheet exists in the master.
 
-    The CC master is the COA·CC amount sheet itself; valid CCs are its
-    ``Cost Center`` values.
+    The CC master is coa_amount.csv itself; valid CCs are its ``Cost Center``
+    unique values. There is no separate cc.csv master file.
 
     Parameters
     ----------
@@ -202,37 +97,3 @@ def validate_cycle_cc(
     ]).unique()
 
     return sorted(cc for cc in cycle_ccs if cc not in master)
-
-
-def validate_sender_coverage(
-    df_5b: pd.DataFrame,
-    cycle_df: pd.DataFrame,
-) -> list[tuple[str, float]]:
-    """Check that every CC holding common-cost balance appears as a Sender.
-
-    A common-cost CC that never sends keeps its balance through every cycle.
-    Because the final result is built only from received (allocated) amounts,
-    that undistributed balance never reaches build_result and silently vanishes,
-    breaking the conservation law 배부전액 합 == 배부합계. This function only
-    detects such CCs; it does not correct them.
-
-    Parameters
-    ----------
-    df_5b    : aggregate_for_allocation result. Columns: 전기COA, Cost Center, Amounts.
-    cycle_df : load_cycle result.
-
-    Returns
-    -------
-    list[tuple[str, float]]
-        (CC, total common-cost amount) for every CC that holds a non-zero
-        common-cost balance but never appears as a Sender. Sorted by CC.
-        Empty list means every common-cost CC is covered.
-    """
-    cc_totals = df_5b.groupby("Cost Center", observed = True)["Amounts"].sum()
-    senders = set(cycle_df["Sender CC"])
-    violators = [
-        (str(cc), float(amount))
-        for cc, amount in cc_totals.items()
-        if cc not in senders and abs(amount) > 1e-6
-    ]
-    return sorted(violators, key = lambda item: item[0])

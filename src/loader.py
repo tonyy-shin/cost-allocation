@@ -353,6 +353,31 @@ def load_coa_amount(path: Path) -> pd.DataFrame:
     return df
 
 
+def load_pre_allocation(path: Path) -> dict[str, float]:
+    """Read pre_allocation.csv and sum Amounts by Cost Center.
+
+    The file shares coa_amount.csv's schema (COA, Cost Center, Amounts), so the
+    same reader is reused. The COA column is ignored; only the CC-level total is
+    needed, exclusively for the by_cc output's 배부전금액 column.
+
+    Parameters
+    ----------
+    path : Path
+        Path to pre_allocation.csv.
+
+    Returns
+    -------
+    dict[str, float]
+        Cost Center code -> summed Amounts.
+    """
+    df = load_coa_amount(path)  # reuses schema validation + numeric parsing
+    return (
+        df.groupby("Cost Center", observed=True)["Amounts"]
+        .sum()
+        .to_dict()
+    )
+
+
 def load_mapping(path: Path) -> pd.DataFrame:
     """Read the transfer COA mapping CSV and return a DataFrame.
 

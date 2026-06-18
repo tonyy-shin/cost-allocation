@@ -5,51 +5,41 @@ from pathlib import Path
 import pandas as pd
 
 
-# Build the final result grid (Sender CC keyed, long format)
+# Save the two-branch result tree (by_coa / by_cc)
 
 
-def build_result(sender_decomposed: pd.DataFrame) -> pd.DataFrame:
-    """Build the final result grid from the sender-side decomposition.
+def save_results(
+    by_coa_df: pd.DataFrame,
+    by_cc_files: dict[int, pd.DataFrame],
+    output_dir: Path,
+) -> Path:
+    """Write the by_coa and by_cc outputs under the output directory.
 
-    The result is keyed by Sender CC (who distributed the cost) in long format,
-    one row per (차수, 전기COA, 기존COA, Sender CC). This is simply the
-    decompose_sender_to_original_coa output with a fixed column order; the heavy
-    lifting (ratio decomposition, sorting) happens upstream.
+    Layout:
+        <output_dir>/by_coa/result.csv
+        <output_dir>/by_cc/{n}차배부후.csv   (one per cycle)
 
-    Parameters
-    ----------
-    sender_decomposed : decompose_sender_to_original_coa result.
-
-    Returns
-    -------
-    pd.DataFrame
-        Columns: 차수, 전기COA, 기존COA, Sender CC, 배분금액.
-    """
-    cols = ["차수", "전기COA", "기존COA", "Sender CC", "배분금액"]
-    return sender_decomposed[cols].reset_index(drop=True)
-
-
-# Save to CSV
-
-
-def save_result(result_df: pd.DataFrame, output_dir: Path) -> Path:
-    """Write the final result DataFrame to a CSV file.
-
-    Filename: result.csv, encoding: utf-8-sig (Excel compatible Korean support).
+    All files use utf-8-sig encoding for Excel-compatible Korean.
 
     Parameters
     ----------
-    result_df  : build_result output.
-    output_dir : Directory where the file will be saved.
+    by_coa_df   : build_by_coa result (single table).
+    by_cc_files : build_by_cc result. {cycle n: per-cycle snapshot DataFrame}.
+    output_dir  : Directory under which the by_coa/ and by_cc/ folders are created.
 
     Returns
     -------
     Path
-        Full path of the saved file.
+        The output_dir root.
     """
     output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    by_coa_dir = output_dir / "by_coa"
+    by_cc_dir = output_dir / "by_cc"
+    by_coa_dir.mkdir(parents=True, exist_ok=True)
+    by_cc_dir.mkdir(parents=True, exist_ok=True)
 
-    out_path = output_dir / "result.csv"
-    result_df.to_csv(out_path, index=False, encoding="utf-8-sig")
-    return out_path
+    by_coa_df.to_csv(by_coa_dir / "result.csv", index=False, encoding="utf-8-sig")
+    for n, df in by_cc_files.items():
+        df.to_csv(by_cc_dir / f"{n}차배부후.csv", index=False, encoding="utf-8-sig")
+
+    return output_dir

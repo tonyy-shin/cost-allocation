@@ -8,10 +8,11 @@ from pathlib import Path
 
 
 _FIELDS = [
-    ("coa_amount", "COA·CC 마스터",  "file"),
-    ("mapping",    "전기 매핑",      "file"),
-    ("cycle",      "Cycle",         "file"),
-    ("output_dir", "결과 저장 폴더", "dir"),
+    ("coa_amount",     "COA·CC 마스터",  "file"),
+    ("mapping",        "전기 매핑",      "file"),
+    ("cycle",          "Cycle",         "file"),
+    ("pre_allocation", "배부전 금액",    "file"),
+    ("output_dir",     "결과 저장 폴더", "dir"),
 ]
 
 _CONFIG_PATH = Path.home() / ".cost-allocation" / "last_paths.json"
@@ -57,17 +58,18 @@ def _display_name(path: str) -> str:
 
 
 def prompt_file_paths() -> dict[str, Path] | None:
-    """Open a tkinter window to collect three input file paths and an output directory.
+    """Open a tkinter window to collect four input file paths and an output directory.
 
     Previously selected paths are pre-filled if they still exist on disk.
 
     Returns
     -------
     dict with keys:
-        'coa_amount' : Path  -- COA·CC master amount CSV
-        'mapping'    : Path  -- transfer COA mapping CSV
-        'cycle'      : Path  -- allocation cycle CSV
-        'output_dir' : Path  -- directory where the result will be saved
+        'coa_amount'     : Path  -- COA·CC master amount CSV
+        'mapping'        : Path  -- transfer COA mapping CSV
+        'cycle'          : Path  -- allocation cycle CSV
+        'pre_allocation' : Path  -- pre-allocation amount CSV (by_cc 배부전금액)
+        'output_dir'     : Path  -- directory where the result will be saved
     None
         If the user closes the window without completing the selection.
     """
