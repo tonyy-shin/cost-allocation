@@ -51,6 +51,51 @@ def apply_override(coa_df: pd.DataFrame, override_df: pd.DataFrame) -> pd.DataFr
     return merged[cols]
 
 
+# Step 2-C: Fill cycle-only Cost Centers
+
+
+def fill_missing_cycle_cc(coa_df: pd.DataFrame, cycle_df: pd.DataFrame) -> pd.DataFrame:
+    """Add zero-amount rows for cycle CCs absent from the master.
+
+    A CC that appears in cycle.csv (as sender or receiver) but has no row in
+    coa_amount.csv would be dropped from cc_list and never appear in by_cc, so
+    money it receives as a receiver is lost. Each missing CC is inserted as
+    Cost Center=<cc>, Amounts=0, COA=NaN. COA=NaN keeps the row out of by_coa
+    (common cost = 전기COA != "") while still contributing the CC to the by_cc list.
+
+    Run before CategoricalDtype harmonization so keys are still plain str; the
+    new CC then joins the CC category set built downstream.
+
+    Parameters
+    ----------
+    coa_df   : load_coa_amount result (post-override). Columns: COA, Cost Center, Amounts.
+    cycle_df : load_cycle result. Sender CC / Receiver CC columns are scanned.
+
+    Returns
+    -------
+    pd.DataFrame
+        coa_df plus one zero-amount, NaN-COA row per cycle CC missing from the
+        master. Same column order and dtypes (keys object str, Amounts float64).
+    """
+    cols = list(coa_df.columns)
+    cycle_ccs = (
+        pd.concat([cycle_df["Sender CC"], cycle_df["Receiver CC"]])
+        .astype(str).unique()
+    )
+    existing = set(coa_df["Cost Center"].astype(str))
+    missing = [cc for cc in cycle_ccs if cc not in existing]
+    if not missing:
+        return coa_df
+
+    extra = pd.DataFrame({
+        "COA": pd.Series([pd.NA] * len(missing), dtype="object"),
+        "Cost Center": pd.Series(missing, dtype="object"),
+        "Amounts": pd.Series([0.0] * len(missing), dtype="float64"),
+    })[cols]
+    result = pd.concat([coa_df, extra], ignore_index=True)
+    return result[cols]
+
+
 # Step 3: Assign transfer COA
 
 

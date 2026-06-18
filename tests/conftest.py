@@ -23,7 +23,9 @@ from src.loader import (  # noqa: E402
     load_coa_amount, load_cycle, load_mapping, load_override_amount,
     load_pre_allocation,
 )
-from src.prepare import apply_override, build_enriched  # noqa: E402
+from src.prepare import (  # noqa: E402
+    apply_override, build_enriched, fill_missing_cycle_cc,
+)
 from src.allocation import build_by_coa, build_by_cc  # noqa: E402
 
 
@@ -66,8 +68,10 @@ def loaded_inputs(sample_paths) -> dict:
     pre_alloc_cc = load_pre_allocation(sample_paths["pre_allocation"])
     override_df = load_override_amount(sample_paths["override_amount"])
 
-    # Correct master amounts before dtype harmonization (cf. main._load_inputs).
+    # Correct master amounts, then add cycle-only CCs, before dtype harmonization
+    # (cf. main._load_inputs).
     coa_df = apply_override(coa_df, override_df)
+    coa_df = fill_missing_cycle_cc(coa_df, cycle_df)
 
     cat_dtypes = build_category_dtypes(coa_df, mapping_df)
     coa_df, mapping_df = apply_category_dtypes(

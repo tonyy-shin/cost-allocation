@@ -518,7 +518,9 @@ def build_category_dtypes(
                   Includes "" (empty string) for direct-cost rows.
     """
     cc_cats = coa_df["Cost Center"].unique().tolist()
-    coa_cats = coa_df["COA"].unique().tolist()
+    # dropna: cycle-only CCs are inserted with COA=NaN (fill_missing_cycle_cc);
+    # a null in the category list makes CategoricalDtype raise.
+    coa_cats = coa_df["COA"].dropna().unique().tolist()
     e_coa_cats = [""] + mapping_df["전기COA"].unique().tolist()
 
     return {

@@ -16,12 +16,13 @@ def _row(df: pd.DataFrame, cc: str) -> pd.Series:
 
 def test_by_coa_column_layout(pipeline_outputs):
     # Keys, per-cycle 배부금액, one empty separator, then per-cycle 배부합계.
+    # The sample cycle.csv has 3 차수 (cycle 3 routes to the master-absent CC 4001).
     cols = list(pipeline_outputs["by_coa_df"].columns)
     assert cols == [
         "전기COA", "기존COA", "Sender CC",
-        "1차배부금액", "2차배부금액",
+        "1차배부금액", "2차배부금액", "3차배부금액",
         "",
-        "1차배부합계", "2차배부합계",
+        "1차배부합계", "2차배부합계", "3차배부합계",
     ]
 
 

@@ -8,8 +8,27 @@ from src.prepare import (
     apply_override,
     assign_transfer_coa,
     build_enriched,
+    fill_missing_cycle_cc,
     validate_cycle_cc,
 )
+
+
+def _object_coa_df():
+    """Small object-dtype coa_df, mirroring the stage fill runs at."""
+    return pd.DataFrame({
+        "COA": pd.Series(["6100", "7200"], dtype="object"),
+        "Cost Center": pd.Series(["1001", "2002"], dtype="object"),
+        "Amounts": pd.Series([5_000_000.0, 2_000_000.0], dtype="float64"),
+    })
+
+
+def _cycle_df(sender_ccs, receiver_ccs):
+    return pd.DataFrame({
+        "차수": [1] * len(sender_ccs),
+        "Sender CC": list(sender_ccs),
+        "Receiver CC": list(receiver_ccs),
+        "%": [1.0] * len(sender_ccs),
+    })
 
 
 # apply_override cases
@@ -71,6 +90,42 @@ def test_apply_override_collapses_duplicate_combos():
     assert matched["Amounts"].iloc[0] == 9_000_000.0
     # Unmatched row keeps its original value; no broadcast inflation.
     assert result["Amounts"].sum() == 9_000_000.0 + 500_000.0
+
+
+# fill_missing_cycle_cc cases
+
+
+def test_fill_missing_cycle_cc_adds_missing():
+    coa_df = _object_coa_df()
+    # 1001 exists in master; 1003 (receiver) and 9999 (sender) do not.
+    cycle_df = _cycle_df(["1001", "9999"], ["1003", "1001"])
+    result = fill_missing_cycle_cc(coa_df, cycle_df)
+
+    added = result[result["Cost Center"].isin(["1003", "9999"])]
+    assert set(added["Cost Center"]) == {"1003", "9999"}
+    assert (added["Amounts"] == 0).all()
+    assert added["COA"].isna().all()
+
+
+def test_fill_missing_cycle_cc_no_duplicates():
+    coa_df = _object_coa_df()
+    # All cycle CCs already exist in the master -> nothing added, frame unchanged.
+    cycle_df = _cycle_df(["1001"], ["2002"])
+    result = fill_missing_cycle_cc(coa_df, cycle_df)
+
+    assert len(result) == len(coa_df)
+    assert (result["Cost Center"] == "1001").sum() == 1
+
+
+def test_fill_missing_cycle_cc_preserves_columns_and_dtypes():
+    coa_df = _object_coa_df()
+    cycle_df = _cycle_df(["7777"], ["8888"])
+    result = fill_missing_cycle_cc(coa_df, cycle_df)
+
+    assert list(result.columns) == list(coa_df.columns)
+    assert result["COA"].dtype == "object"
+    assert result["Cost Center"].dtype == "object"
+    assert result["Amounts"].dtype == "float64"
 
 
 # SUCCESS cases
