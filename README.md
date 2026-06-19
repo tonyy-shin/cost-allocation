@@ -4,8 +4,8 @@ A desktop tool that allocates shared (common) costs across cost centers using a
 transfer-COA mapping and a multi-cycle distribution schedule, and produces two
 complementary views of the result:
 
-- **by_coa** — how much each common-cost COA distributed per cycle, keyed by sender and receiver.
-- **by_cc** — each cost center's settled balance after every cycle.
+- **배부금액** (by_coa) — how much each common-cost COA distributed per cycle, keyed by sender and receiver.
+- **잔액** (by_cc) — each cost center's settled balance after every cycle, broken down by COA pair.
 
 All processing runs locally; no data is transmitted externally.
 
@@ -88,13 +88,14 @@ sender to that receiver in that cycle. The tool melts this grid to one row per
 
 A receiver (or sender) CC that appears in `cycle.csv` but not in `coa_amount.csv` is
 expected: it is inserted automatically with an amount of 0 so it still appears in the
-by_cc output and receives its allocations.
+잔액 output and receives its allocations.
 
 ### 4. Pre-allocation Amount — `pre_allocation.csv`
 
-Same schema as `coa_amount.csv`. Only the per-CC total is used — amounts are summed by
-`Cost Center` to populate the `배부전금액` (pre-allocation balance) column of the by_cc
-output. The `COA` column is ignored.
+Same schema as `coa_amount.csv`. Amounts are summed by `(COA, Cost Center)` and enriched
+with the transfer COA (via `mapping.csv`) to populate the `배부전금액` (pre-allocation
+balance) of each `(전기COA, 기존COA, CC)` row in the 잔액 output; direct costs (no mapping)
+get `전기COA=""`.
 
 ```csv
 COA,Cost Center,Amounts
@@ -111,15 +112,15 @@ use UTF-8 with BOM for Excel compatibility.
 
 ```
 <output_dir>/
-  by_coa/
+  배부금액/
     result.csv
-  by_cc/
+  잔액/
     1차배부후.csv
     2차배부후.csv
     …            # one file per cycle
 ```
 
-### `by_coa/result.csv`
+### `배부금액/result.csv`
 
 One row per `(전기COA, 기존COA, Sender CC, Receiver CC)` for **common-cost** sender rows.
 Each sender's per-cycle amount is split across its receivers by the cycle ratio, so a
@@ -135,21 +136,31 @@ Each sender's per-cycle amount is split across its receivers by the cycle ratio,
 | *(empty column)*       | Blank separator                                              |
 | `1차배부합계` … `n차배부합계` | Column-wide total for each cycle (placed in the first row only) |
 
-### `by_cc/{n}차배부후.csv`
+### `잔액/{n}차배부후.csv`
 
-One file per cycle `n`, holding every cost center's settled balance after cycle `n`.
+One file per cycle `n`, holding every cost center's settled balance after cycle `n`,
+broken down by the `(전기COA, 기존COA)` pair the money belongs to. Money keeps its COA
+identity through the allocation, so the grain is `(전기COA, 기존COA, CC)` — a CC spans one
+row per COA pair it holds.
 
 | Column                 | Description                                                      |
 |------------------------|------------------------------------------------------------------|
+| `전기COA`              | Transfer COA the balance belongs to (`""` for direct cost)       |
+| `기존COA`              | Base COA the balance belongs to (`""` for the option-B row)      |
 | `CC`                   | Cost center code                                                 |
-| `배부전금액`           | Pre-allocation balance (from `pre_allocation.csv`)               |
+| `배부전금액`           | Pre-allocation balance for this `(전기COA, 기존COA, CC)` (from `pre_allocation.csv`) |
 | `1차후금액` … `n차후금액` | Balance attributable to each cycle (the last column folds in the still-held original balance) |
-| `배부합계`             | Row total of the 후금액 columns (the CC's final balance)         |
+| `배부합계`             | Row total of the 후금액 columns (the row's final balance)        |
 
-A **totals row** is appended at the bottom of each by_cc file: `CC` is labelled `합계`,
+Every CC in the master is guaranteed at least one row: a CC that holds no COA pair of its
+own (no pre-allocation and never received) gets a single all-zero row with `전기COA=""` and
+`기존COA=""` so it is never dropped.
+
+A **totals row** is appended at the bottom of each file: `CC` is labelled `합계`,
 `배부전금액` and `배부합계` carry the integer-rounded column totals, and the remaining
-cells are blank. Because allocation only moves money between cost centers, each file
-satisfies `배부전금액` total == `배부합계` total.
+cells (including `전기COA`/`기존COA`) are blank. Because allocation only moves money between
+cost centers, each file satisfies `배부전금액` total == `배부합계` total — both overall and
+within each `(전기COA, 기존COA)` pair.
 
 ---
 
@@ -166,12 +177,12 @@ The run is wired in [main.py](main.py) and flows through four modules:
    assigns each row its transfer COA (`전기COA`) — common costs get the mapped value,
    direct costs get an empty string.
 3. **allocation** ([src/allocation.py](src/allocation.py)) — `build_by_coa` produces the
-   by_coa table (each sender amount exploded into one row per receiver via the cycle
-   ratios) and the per-(cycle, sender) totals; `build_by_cc` walks the cycles in
-   order, crediting receivers and draining senders, and snapshots each CC's labelled
-   balances into one frame per cycle.
-4. **output** ([src/output.py](src/output.py)) — `save_results` writes the `by_coa/` and
-   `by_cc/` tree; `append_total_row` adds the by_cc totals row.
+   배부금액 table (each sender amount exploded into one row per receiver via the cycle
+   ratios) and the per-`(cycle, 전기COA, 기존COA, sender)` totals; `build_by_cc` walks the
+   cycles in order, crediting receivers and draining senders under each money's COA pair,
+   and snapshots each `(전기COA, 기존COA, CC)`'s labelled balances into one frame per cycle.
+4. **output** ([src/output.py](src/output.py)) — `save_results` writes the `배부금액/` and
+   `잔액/` tree; `append_total_row` adds the 잔액 totals row.
 
 Data-quality issues found during loading (non-numeric codes/amounts, percent values
 above 1 without a `%` sign, auto-normalized ratios) are collected and shown in a

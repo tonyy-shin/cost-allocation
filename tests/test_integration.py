@@ -16,9 +16,9 @@ def test_end_to_end_writes_expected_tree(pipeline_outputs, tmp_path):
         pipeline_outputs["by_cc_files"],
         tmp_path,
     )
-    assert (out / "by_coa" / "result.csv").exists()
-    assert (out / "by_cc" / "1차배부후.csv").exists()
-    assert (out / "by_cc" / "2차배부후.csv").exists()
+    assert (out / "배부금액" / "result.csv").exists()
+    assert (out / "잔액" / "1차배부후.csv").exists()
+    assert (out / "잔액" / "2차배부후.csv").exists()
 
 
 def test_end_to_end_conservation_per_file(pipeline_outputs):

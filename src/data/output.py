@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 
 
-# Save the two-branch result tree (by_coa / by_cc)
+# Save the two-branch result tree (배부금액 / 잔액)
 
 
 def append_total_row(df: pd.DataFrame) -> pd.DataFrame:
@@ -43,8 +43,8 @@ def save_results(
     """Write the by_coa and by_cc outputs under the output directory.
 
     Layout:
-        <output_dir>/by_coa/result.csv
-        <output_dir>/by_cc/{n}차배부후.csv   (one per cycle)
+        <output_dir>/배부금액/result.csv
+        <output_dir>/잔액/{n}차배부후.csv   (one per cycle)
 
     All files use utf-8-sig encoding for Excel-compatible Korean.
 
@@ -52,7 +52,7 @@ def save_results(
     ----------
     by_coa_df   : build_by_coa result (single table).
     by_cc_files : build_by_cc result. {cycle n: per-cycle snapshot DataFrame}.
-    output_dir  : Directory under which the by_coa/ and by_cc/ folders are created.
+    output_dir  : Directory under which the 배부금액/ and 잔액/ folders are created.
 
     Returns
     -------
@@ -60,8 +60,8 @@ def save_results(
         The output_dir root.
     """
     output_dir = Path(output_dir)
-    by_coa_dir = output_dir / "by_coa"
-    by_cc_dir = output_dir / "by_cc"
+    by_coa_dir = output_dir / "배부금액"
+    by_cc_dir = output_dir / "잔액"
     by_coa_dir.mkdir(parents=True, exist_ok=True)
     by_cc_dir.mkdir(parents=True, exist_ok=True)
 

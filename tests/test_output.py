@@ -1,4 +1,4 @@
-"""Tests for src.output: the by_coa / by_cc directory tree and CSV writing."""
+"""Tests for src.output: the 배부금액 / 잔액 directory tree and CSV writing."""
 from __future__ import annotations
 
 import pandas as pd
@@ -75,11 +75,11 @@ def test_save_results_writes_directory_tree(pipeline_outputs, tmp_path):
     )
 
     assert out == tmp_path
-    by_coa = tmp_path / "by_coa" / "result.csv"
+    by_coa = tmp_path / "배부금액" / "result.csv"
     assert by_coa.exists()
     # One by_cc file per cycle, named {n}차배부후.csv.
     for n in pipeline_outputs["by_cc_files"]:
-        assert (tmp_path / "by_cc" / f"{n}차배부후.csv").exists()
+        assert (tmp_path / "잔액" / f"{n}차배부후.csv").exists()
 
 
 def test_save_results_uses_utf8_sig(pipeline_outputs, tmp_path):
@@ -89,7 +89,7 @@ def test_save_results_uses_utf8_sig(pipeline_outputs, tmp_path):
         tmp_path,
     )
     # utf-8-sig writes a BOM prefix for Excel compatibility.
-    by_coa = tmp_path / "by_coa" / "result.csv"
+    by_coa = tmp_path / "배부금액" / "result.csv"
     assert by_coa.read_bytes().startswith(b"\xef\xbb\xbf")
 
 
@@ -99,7 +99,7 @@ def test_save_results_by_cc_round_trips(pipeline_outputs, tmp_path):
         pipeline_outputs["by_cc_files"],
         tmp_path,
     )
-    file1 = pd.read_csv(tmp_path / "by_cc" / "1차배부후.csv", encoding="utf-8-sig")
+    file1 = pd.read_csv(tmp_path / "잔액" / "1차배부후.csv", encoding="utf-8-sig")
     expected = pipeline_outputs["by_cc_files"][1]
     assert list(file1.columns) == list(expected.columns)
     # The written file carries an extra totals row at the bottom.
