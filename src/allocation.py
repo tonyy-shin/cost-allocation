@@ -20,7 +20,7 @@ def _after_col(cycle: int) -> str:
     return f"{cycle}차후금액"
 
 
-# by_coa: sender common-cost amounts keyed by (전기COA, 기존COA, Sender CC)
+# by_coa: sender common-cost amounts keyed by (전기COA, 기존COA, Sender CC, Receiver CC)
 
 
 def build_by_coa(
