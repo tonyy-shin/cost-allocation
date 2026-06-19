@@ -19,19 +19,25 @@ def test_by_coa_column_layout(pipeline_outputs):
     # The sample cycle.csv has 3 차수 (cycle 3 routes to the master-absent CC 4001).
     cols = list(pipeline_outputs["by_coa_df"].columns)
     assert cols == [
-        "전기COA", "기존COA", "Sender CC",
+        "전기COA", "기존COA", "Sender CC", "Receiver CC",
         "1차배부금액", "2차배부금액", "3차배부금액",
         "",
         "1차배부합계", "2차배부합계", "3차배부합계",
     ]
 
 
-def test_by_coa_amounts_keyed_by_sender(pipeline_outputs):
+def test_by_coa_amounts_split_by_receiver(pipeline_outputs):
     df = pipeline_outputs["by_coa_df"]
-    # Sender 1001 holds common cost E6100/6100 = 5,000,000 in cycle 1.
-    row = df[(df["기존COA"] == "6100") & (df["Sender CC"] == "1001")].iloc[0]
-    assert row["1차배부금액"] == pytest.approx(5_000_000.0)
-    assert row["2차배부금액"] == pytest.approx(0.0)
+    # Sender 1001 holds common cost E6100/6100 = 5,000,000 in cycle 1, split
+    # across its receivers (1002 → 0.3, 1003 → 0.7) per cycle.csv.
+    rows = df[(df["기존COA"] == "6100") & (df["Sender CC"] == "1001")]
+    assert rows["1차배부금액"].sum() == pytest.approx(5_000_000.0)
+    assert rows["2차배부금액"].sum() == pytest.approx(0.0)
+
+    r1002 = rows[rows["Receiver CC"] == "1002"].iloc[0]
+    r1003 = rows[rows["Receiver CC"] == "1003"].iloc[0]
+    assert r1002["1차배부금액"] == pytest.approx(5_000_000.0 * 0.3)
+    assert r1003["1차배부금액"] == pytest.approx(5_000_000.0 * 0.7)
 
 
 def test_by_coa_total_is_column_wide_scalar_first_row_only(pipeline_outputs):

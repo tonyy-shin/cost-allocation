@@ -49,8 +49,10 @@ def build_by_coa(
     Returns
     -------
     (by_coa_df, sender_totals)
-        by_coa_df     : Columns 전기COA, 기존COA, Sender CC,
-                        1..n차배부금액, "", 1..n차배부합계.
+        by_coa_df     : Columns 전기COA, 기존COA, Sender CC, Receiver CC,
+                        1..n차배부금액, "", 1..n차배부합계. Each per-row
+                        n차배부금액 is the sender's cycle-n amount split by the
+                        (Sender → Receiver) ratio from cycle.csv.
         sender_totals : {cycle: {Sender CC: total distributed in that cycle}}.
     """
     common = enriched[enriched["전기COA"].astype(str) != ""].copy()
@@ -59,12 +61,13 @@ def build_by_coa(
         common[col] = common[col].astype(str)
 
     cycles = sorted(int(c) for c in cycle_df["차수"].unique())
-    keys = ["전기COA", "기존COA", "Sender CC"]
+    keys = ["전기COA", "기존COA", "Sender CC", "Receiver CC"]
 
     per_cycle: list[pd.DataFrame] = []
     sender_totals: dict[int, dict[str, float]] = {}
     for n in cycles:
-        senders = set(cycle_df.loc[cycle_df["차수"] == n, "Sender CC"].astype(str))
+        rows_n = cycle_df[cycle_df["차수"] == n]
+        senders = set(rows_n["Sender CC"].astype(str))
         sub = common[common["Cost Center"].isin(senders)]
         grouped = (
             sub.groupby(["전기COA", "기존COA", "Cost Center"], observed=True)
@@ -72,10 +75,22 @@ def build_by_coa(
             .reset_index()
             .rename(columns={"Cost Center": "Sender CC", "Amounts": _amt_col(n)})
         )
-        per_cycle.append(grouped)
+        # sender_totals stays sender-level (pre-explode, ratio-free) so by_cc's
+        # math is unchanged.
         sender_totals[n] = (
             grouped.groupby("Sender CC")[_amt_col(n)].sum().to_dict()
         )
+
+        # Explode each sender amount into (Sender → Receiver) shares using the
+        # cycle's ratios. Sender CC is forced to str so the merge keys line up
+        # even if a Categorical dtype lingered through the groupby.
+        grouped["Sender CC"] = grouped["Sender CC"].astype(str)
+        pairs = rows_n[["Sender CC", "Receiver CC", "%"]].copy()
+        pairs["Sender CC"] = pairs["Sender CC"].astype(str)
+        pairs["Receiver CC"] = pairs["Receiver CC"].astype(str)
+        exploded = grouped.merge(pairs, on="Sender CC", how="inner")
+        exploded[_amt_col(n)] = exploded[_amt_col(n)] * exploded["%"]
+        per_cycle.append(exploded[keys + [_amt_col(n)]])
 
     if per_cycle:
         result = reduce(
