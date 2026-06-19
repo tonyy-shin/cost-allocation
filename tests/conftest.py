@@ -20,11 +20,11 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from src.data.loader import (  # noqa: E402
     apply_category_dtypes, build_category_dtypes,
-    load_coa_amount, load_cycle, load_mapping, load_override_amount,
+    load_coa_amount, load_cycle, load_mapping,
     load_pre_allocation,
 )
 from src.core.prepare import (  # noqa: E402
-    apply_override, build_enriched, fill_missing_cycle_cc,
+    build_enriched, fill_missing_cycle_cc,
 )
 from src.core.allocation import build_by_coa, build_by_cc  # noqa: E402
 
@@ -35,18 +35,11 @@ def sample_paths() -> dict[str, Path]:
     base = PROJECT_ROOT / "sample_data"
     return {
         "coa_amount":      base / "coa_amount.csv",
-        "override_amount": base / "override_amount.csv",
         "mapping":         base / "mapping.csv",
         "cycle":           base / "cycle.csv",
         "pre_allocation":  base / "pre_allocation.csv",
         "output_dir":      base / "output",
     }
-
-
-@pytest.fixture
-def override_df(sample_paths):
-    """Raw override amount DataFrame (cf. main._load_inputs)."""
-    return load_override_amount(sample_paths["override_amount"])
 
 
 @pytest.fixture
@@ -66,11 +59,8 @@ def loaded_inputs(sample_paths) -> dict:
     mapping_df = load_mapping(sample_paths["mapping"])
     cycle_df = load_cycle(sample_paths["cycle"])
     pre_alloc_cc = load_pre_allocation(sample_paths["pre_allocation"])
-    override_df = load_override_amount(sample_paths["override_amount"])
 
-    # Correct master amounts, then add cycle-only CCs, before dtype harmonization
-    # (cf. main._load_inputs).
-    coa_df = apply_override(coa_df, override_df)
+    # Add cycle-only CCs before dtype harmonization (cf. main._load_inputs).
     coa_df = fill_missing_cycle_cc(coa_df, cycle_df)
 
     cat_dtypes = build_category_dtypes(coa_df, mapping_df)

@@ -48,10 +48,10 @@ def test_end_to_end_hand_checked_cycle_flow(pipeline_outputs):
     assert after2("3001") == pytest.approx(3_500_000.0 * 0.5)
 
 
-def test_by_coa_amounts_nonzero_after_override(pipeline_outputs):
-    # The master (coa_amount.csv) holds 0 for the cycle sender/receiver combos;
-    # override_amount.csv supplies the real amounts. After the override, by_coa's
-    # per-cycle totals must be the real (non-zero) values, not 0.
+def test_by_coa_amounts_nonzero(pipeline_outputs):
+    # The master (coa_amount.csv) supplies the real amounts for the cycle
+    # sender/receiver combos, so by_coa's per-cycle totals must be the real
+    # (non-zero) values, not 0.
     by_coa = pipeline_outputs["by_coa_df"]
 
     # 배부합계 columns carry a single column-wide scalar in row 0 only.

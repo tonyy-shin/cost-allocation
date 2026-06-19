@@ -13,7 +13,6 @@ from pathlib import Path
 # not a template file, so it keeps its descriptive Korean label.
 _FIELDS = [
     ("coa_amount",      "coa_amount",      "file"),
-    ("override_amount", "override_amount", "file"),
     ("mapping",         "mapping",         "file"),
     ("cycle",           "cycle",           "file"),
     ("pre_allocation",  "pre_allocation",  "file"),
@@ -71,7 +70,6 @@ def prompt_file_paths() -> dict[str, Path] | None:
     -------
     dict with keys:
         'coa_amount'     : Path  -- COA·CC master amount CSV
-        'override_amount': Path  -- override amount CSV (corrects master Amounts)
         'mapping'        : Path  -- transfer COA mapping CSV
         'cycle'          : Path  -- allocation cycle CSV
         'pre_allocation' : Path  -- pre-allocation amount CSV (by_cc 배부전금액)

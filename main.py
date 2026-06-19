@@ -12,12 +12,10 @@ from src.data.loader import (
     load_coa_amount,
     load_cycle,
     load_mapping,
-    load_override_amount,
     load_pre_allocation,
 )
 from src.data.output import save_results
 from src.core.prepare import (
-    apply_override,
     build_enriched,
     fill_missing_cycle_cc,
 )
@@ -32,7 +30,7 @@ def _load_inputs(
     paths: dict,
     notes: list[str],
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, float]]:
-    """Steps 1–2: load files, apply overrides/fills, apply dtypes.
+    """Steps 1–2: load files, apply fills, apply dtypes.
 
     Returns (coa_df, mapping_df, cycle_df, pre_alloc_cc). The CC list is taken
     from coa_df["Cost Center"]; there is no separate CC master file. The
@@ -42,7 +40,7 @@ def _load_inputs(
     """
     validation_errors: list[str] = []
 
-    coa_df = mapping_df = cycle_df = override_df = None
+    coa_df = mapping_df = cycle_df = None
     pre_alloc_cc: dict[str, float] = {}
     try:
         coa_df = load_coa_amount(paths["coa_amount"])
@@ -60,21 +58,11 @@ def _load_inputs(
         pre_alloc_cc = load_pre_allocation(paths["pre_allocation"])
     except ValueError as e:
         validation_errors.append(str(e))
-    try:
-        override_df = load_override_amount(paths["override_amount"])
-    except ValueError as e:
-        validation_errors.append(str(e))
 
     if validation_errors:
         for msg in validation_errors:
             notes.append(msg)
         raise PipelineAborted("입력 파일 검증에 실패했습니다.")
-
-    # Correct master amounts before CategoricalDtype harmonization, so both
-    # merge keys are still plain str (object). build_category_dtypes then derives
-    # categories from the corrected coa_df; override adds no rows, so the CC/COA
-    # category sets are unchanged.
-    coa_df = apply_override(coa_df, override_df)
 
     # Insert zero-amount rows for cycle CCs missing from the master so they still
     # appear in by_cc and receive their allocations. A cycle CC absent from the

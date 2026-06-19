@@ -13,7 +13,7 @@ All processing runs locally; no data is transmitted externally.
 
 ## Input Files
 
-Five CSV files plus an output directory are selected at run time. File **encoding** is
+Four CSV files plus an output directory are selected at run time. File **encoding** is
 auto-detected in the order UTF-8 (with or without BOM) → EUC-KR → CP949, so Excel's
 default Korean "CSV (comma delimited)" files load correctly.
 
@@ -44,19 +44,7 @@ COA,Cost Center,Amounts
 7200,2002,2000000
 ```
 
-### 2. Override Amount — `override_amount.csv`
-
-Same schema as `coa_amount.csv`. For any `(COA, Cost Center)` present here, its
-`Amounts` replaces the master value; combinations not listed keep their master amount.
-Applied before mapping.
-
-```csv
-COA,Cost Center,Amounts
-6100,1001,5000000
-6200,2001,500000
-```
-
-### 3. Transfer COA Mapping — `mapping.csv`
+### 2. Transfer COA Mapping — `mapping.csv`
 
 Maps each base COA to its transfer COA. A COA listed here is a **common cost**; a COA
 not listed is a **direct cost** and is excluded from allocation.
@@ -72,7 +60,7 @@ E6100,6100
 E6200,6200
 ```
 
-### 4. Allocation Cycle — `cycle.csv` (wide format)
+### 3. Allocation Cycle — `cycle.csv` (wide format)
 
 Authored as a matrix: `차수` and `Sender CC` are id columns, and **every remaining
 column header is a Receiver CC code**; each cell is the allocation ratio from that
@@ -102,7 +90,7 @@ A receiver (or sender) CC that appears in `cycle.csv` but not in `coa_amount.csv
 expected: it is inserted automatically with an amount of 0 so it still appears in the
 by_cc output and receives its allocations.
 
-### 5. Pre-allocation Amount — `pre_allocation.csv`
+### 4. Pre-allocation Amount — `pre_allocation.csv`
 
 Same schema as `coa_amount.csv`. Only the per-CC total is used — amounts are summed by
 `Cost Center` to populate the `배부전금액` (pre-allocation balance) column of the by_cc
@@ -173,11 +161,10 @@ The run is wired in [main.py](main.py) and flows through four modules:
    check required columns, normalize code columns, parse numeric/percent columns,
    validate and auto-normalize cycle ratios, and build the shared `CategoricalDtype`s
    used to harmonize code columns across sheets.
-2. **prepare** ([src/prepare.py](src/prepare.py)) — `apply_override` corrects master
-   amounts from `override_amount.csv`; `fill_missing_cycle_cc` adds zero-amount rows
-   (`COA = NaN`) for cycle CCs absent from the master; `build_enriched` assigns each row
-   its transfer COA (`전기COA`) — common costs get the mapped value, direct costs get an
-   empty string.
+2. **prepare** ([src/prepare.py](src/prepare.py)) — `fill_missing_cycle_cc` adds
+   zero-amount rows (`COA = NaN`) for cycle CCs absent from the master; `build_enriched`
+   assigns each row its transfer COA (`전기COA`) — common costs get the mapped value,
+   direct costs get an empty string.
 3. **allocation** ([src/allocation.py](src/allocation.py)) — `build_by_coa` produces the
    by_coa table (each sender amount exploded into one row per receiver via the cycle
    ratios) and the per-(cycle, sender) totals; `build_by_cc` walks the cycles in
@@ -200,7 +187,7 @@ pip install -r requirements.txt
 python main.py
 ```
 
-`python main.py` opens a file-selection window. Choose the five input CSV files and the
+`python main.py` opens a file-selection window. Choose the four input CSV files and the
 output directory, then click **실행** (enabled once all paths are set). The dual-branch
 result tree is written under the chosen directory, and a completion dialog reports
 success, success-with-warnings, or failure.
@@ -229,11 +216,11 @@ CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs `pytest -v` on Py
 main.py                  # Entry point: UI → load → build outputs → save
 src/
   loader.py              # CSV readers, code/number/percent parsing, dtype setup
-  prepare.py             # Override, missing-CC fill, transfer-COA enrichment
+  prepare.py             # Missing-CC fill, transfer-COA enrichment
   allocation.py          # by_coa table and by_cc per-cycle snapshots
   output.py              # Result tree writer + by_cc totals row
   ui.py                  # tkinter file-selection and completion dialogs
-sample_data/             # Example inputs (coa_amount, override_amount, mapping,
+sample_data/             # Example inputs (coa_amount, mapping,
                          #   cycle, pre_allocation) for local testing
 tests/                   # pytest suite
 ```
