@@ -168,21 +168,24 @@ within each `(전기COA, 기존COA)` pair.
 
 The run is wired in [main.py](main.py) and flows through four modules:
 
-1. **loader** ([src/loader.py](src/loader.py)) — read each CSV with encoding fallback,
-   check required columns, normalize code columns, parse numeric/percent columns,
-   validate and auto-normalize cycle ratios, and build the shared `CategoricalDtype`s
-   used to harmonize code columns across sheets.
-2. **prepare** ([src/prepare.py](src/prepare.py)) — `fill_missing_cycle_cc` adds
+1. **loader** ([src/data/loader.py](src/data/loader.py)) — read each CSV with encoding
+   fallback, check required columns, normalize code columns, parse numeric/percent
+   columns, validate and auto-normalize cycle ratios, and build the shared
+   `CategoricalDtype`s used to harmonize code columns across sheets. `load_pre_allocation`
+   sums amounts by `(COA, Cost Center)`.
+2. **prepare** ([src/core/prepare.py](src/core/prepare.py)) — `fill_missing_cycle_cc` adds
    zero-amount rows (`COA = NaN`) for cycle CCs absent from the master; `build_enriched`
    assigns each row its transfer COA (`전기COA`) — common costs get the mapped value,
-   direct costs get an empty string.
-3. **allocation** ([src/allocation.py](src/allocation.py)) — `build_by_coa` produces the
-   배부금액 table (each sender amount exploded into one row per receiver via the cycle
-   ratios) and the per-`(cycle, 전기COA, 기존COA, sender)` totals; `build_by_cc` walks the
-   cycles in order, crediting receivers and draining senders under each money's COA pair,
-   and snapshots each `(전기COA, 기존COA, CC)`'s labelled balances into one frame per cycle.
-4. **output** ([src/output.py](src/output.py)) — `save_results` writes the `배부금액/` and
-   `잔액/` tree; `append_total_row` adds the 잔액 totals row.
+   direct costs get an empty string. The same enrichment is applied to the pre-allocation
+   frame so 잔액 can split 배부전금액 per COA pair.
+3. **allocation** ([src/core/allocation.py](src/core/allocation.py)) — `build_by_coa`
+   produces the 배부금액 table (each sender amount exploded into one row per receiver via
+   the cycle ratios) and the per-`(cycle, 전기COA, 기존COA, sender)` totals; `build_by_cc`
+   walks the cycles in order, crediting receivers and draining senders under each money's
+   COA pair, and snapshots each `(전기COA, 기존COA, CC)`'s labelled balances into one frame
+   per cycle (every CC guaranteed at least one row).
+4. **output** ([src/data/output.py](src/data/output.py)) — `save_results` writes the
+   `배부금액/` and `잔액/` tree; `append_total_row` adds the 잔액 totals row.
 
 Data-quality issues found during loading (non-numeric codes/amounts, percent values
 above 1 without a `%` sign, auto-normalized ratios) are collected and shown in a
@@ -226,11 +229,15 @@ CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs `pytest -v` on Py
 ```
 main.py                  # Entry point: UI → load → build outputs → save
 src/
-  loader.py              # CSV readers, code/number/percent parsing, dtype setup
-  prepare.py             # Missing-CC fill, transfer-COA enrichment
-  allocation.py          # by_coa table and by_cc per-cycle snapshots
-  output.py              # Result tree writer + by_cc totals row
-  ui.py                  # tkinter file-selection and completion dialogs
+  data/
+    loader.py            # CSV readers, code/number/percent parsing, dtype setup
+    output.py            # Result tree writer + 잔액 totals row
+    utils.py             # Shared parsing/normalization helpers
+  core/
+    prepare.py           # Missing-CC fill, transfer-COA enrichment
+    allocation.py        # 배부금액 table and 잔액 per-cycle snapshots
+  ui/
+    ui.py                # tkinter file-selection and completion dialogs
 sample_data/             # Example inputs (coa_amount, mapping,
                          #   cycle, pre_allocation) for local testing
 tests/                   # pytest suite
