@@ -4,7 +4,7 @@ A desktop tool that allocates shared (common) costs across cost centers using a
 transfer-COA mapping and a multi-cycle distribution schedule, and produces two
 complementary views of the result:
 
-- **by_coa** — how much each common-cost COA distributed per cycle, keyed by sender.
+- **by_coa** — how much each common-cost COA distributed per cycle, keyed by sender and receiver.
 - **by_cc** — each cost center's settled balance after every cycle.
 
 All processing runs locally; no data is transmitted externally.
@@ -133,14 +133,17 @@ use UTF-8 with BOM for Excel compatibility.
 
 ### `by_coa/result.csv`
 
-One row per `(전기COA, 기존COA, Sender CC)` for **common-cost** sender rows.
+One row per `(전기COA, 기존COA, Sender CC, Receiver CC)` for **common-cost** sender rows.
+Each sender's per-cycle amount is split across its receivers by the cycle ratio, so a
+`(전기COA, 기존COA, Sender CC)` group spans one row per receiver.
 
 | Column                 | Description                                                  |
 |------------------------|--------------------------------------------------------------|
 | `전기COA`              | Transfer COA                                                 |
 | `기존COA`              | Base COA                                                     |
 | `Sender CC`            | Sending cost center                                          |
-| `1차배부금액` … `n차배부금액` | Amount this row contributed in each cycle              |
+| `Receiver CC`          | Receiving cost center                                        |
+| `1차배부금액` … `n차배부금액` | Amount sent on this (sender → receiver) row in each cycle (the sender's cycle amount × the cycle's Sender→Receiver ratio) |
 | *(empty column)*       | Blank separator                                              |
 | `1차배부합계` … `n차배부합계` | Column-wide total for each cycle (placed in the first row only) |
 
@@ -176,7 +179,8 @@ The run is wired in [main.py](main.py) and flows through four modules:
    its transfer COA (`전기COA`) — common costs get the mapped value, direct costs get an
    empty string.
 3. **allocation** ([src/allocation.py](src/allocation.py)) — `build_by_coa` produces the
-   by_coa table and the per-(cycle, sender) totals; `build_by_cc` walks the cycles in
+   by_coa table (each sender amount exploded into one row per receiver via the cycle
+   ratios) and the per-(cycle, sender) totals; `build_by_cc` walks the cycles in
    order, crediting receivers and draining senders, and snapshots each CC's labelled
    balances into one frame per cycle.
 4. **output** ([src/output.py](src/output.py)) — `save_results` writes the `by_coa/` and
