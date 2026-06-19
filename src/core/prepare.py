@@ -3,54 +3,6 @@ from __future__ import annotations
 import pandas as pd
 
 
-# Step 2-B: Override master amounts
-
-
-def apply_override(coa_df: pd.DataFrame, override_df: pd.DataFrame) -> pd.DataFrame:
-    """Override coa_df Amounts with override_df values, matched on (COA, Cost Center).
-
-    coa_df is first collapsed to one row per (COA, Cost Center) via groupby-sum:
-    a duplicated combo in the raw master would otherwise broadcast the override
-    value across every duplicate row and inflate the total. No other columns
-    exist yet (전기COA is assigned later) and build_by_coa re-aggregates on the
-    same keys downstream, so the collapse is lossless.
-
-    Applied before CategoricalDtype harmonization so both merge keys are plain
-    str (object); a Categorical-vs-object key mismatch would silently fail to match.
-
-    Combos present in both sheets take the override Amounts; combos only in coa_df
-    keep their original value. Combos only in override_df do not occur (confirmed),
-    so they are not validated.
-
-    Parameters
-    ----------
-    coa_df      : load_coa_amount result. Columns: COA, Cost Center, Amounts.
-    override_df : load_override_amount result. Same schema as coa_df.
-
-    Returns
-    -------
-    pd.DataFrame
-        coa_df with Amounts overridden where a matching (COA, Cost Center) exists.
-        Same column order and key-column dtypes as the input; Amounts is float64
-        (the canonical money type) regardless of whether the merge introduced NaN.
-    """
-    cols = list(coa_df.columns)
-    coa_df = (
-        coa_df.groupby(["COA", "Cost Center"], as_index=False, observed=True)["Amounts"]
-        .sum()
-    )
-    merged = coa_df.merge(
-        override_df[["COA", "Cost Center", "Amounts"]],
-        on=["COA", "Cost Center"],
-        how="left",
-        suffixes=("", "_override"),
-    )
-    merged["Amounts"] = (
-        merged["Amounts_override"].combine_first(merged["Amounts"]).astype("float64")
-    )
-    return merged[cols]
-
-
 # Step 2-C: Fill cycle-only Cost Centers
 
 
@@ -68,7 +20,7 @@ def fill_missing_cycle_cc(coa_df: pd.DataFrame, cycle_df: pd.DataFrame) -> pd.Da
 
     Parameters
     ----------
-    coa_df   : load_coa_amount result (post-override). Columns: COA, Cost Center, Amounts.
+    coa_df   : load_coa_amount result. Columns: COA, Cost Center, Amounts.
     cycle_df : load_cycle result. Sender CC / Receiver CC columns are scanned.
 
     Returns
