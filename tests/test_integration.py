@@ -29,11 +29,12 @@ def test_end_to_end_conservation_per_file(pipeline_outputs):
 
 
 def test_end_to_end_hand_checked_cycle_flow(pipeline_outputs):
-    # Cycle 1: sender 1001 distributes 7,000,000 (0.3 → 1002, 0.7 → 1003).
+    # Cycle 1: sender 1001 distributes 7,000,000 (0.3 → 1002, 0.7 → 1003). A CC
+    # now spans multiple (전기COA, 기존COA) rows, so sum across them per CC.
     file1 = pipeline_outputs["by_cc_files"][1]
 
     def after1(cc):
-        return file1.loc[file1["CC"] == cc, "1차후금액"].iloc[0]
+        return file1.loc[file1["CC"] == cc, "1차후금액"].sum()
 
     assert after1("1002") == pytest.approx(500_000.0 + 7_000_000.0 * 0.3)
     assert after1("1003") == pytest.approx(300_000.0 + 7_000_000.0 * 0.7)
@@ -42,7 +43,7 @@ def test_end_to_end_hand_checked_cycle_flow(pipeline_outputs):
     file2 = pipeline_outputs["by_cc_files"][2]
 
     def after2(cc):
-        return file2.loc[file2["CC"] == cc, "2차후금액"].iloc[0]
+        return file2.loc[file2["CC"] == cc, "2차후금액"].sum()
 
     # 3001 starts at 0 (absent from pre_allocation) and receives half.
     assert after2("3001") == pytest.approx(3_500_000.0 * 0.5)
@@ -62,13 +63,14 @@ def test_by_coa_amounts_nonzero(pipeline_outputs):
 
 def test_cycle_only_cc_appears_in_by_cc(pipeline_outputs):
     # 4001 is a receiver in cycle.csv but absent from coa_amount.csv. It must be
-    # filled in (배부전금액 0) and still receive its cycle-3 allocation (7,000,000).
+    # filled in (배부전금액 0) and still receive its cycle-3 allocation (7,000,000),
+    # now spread across the COA pairs it received (E6100/6100 + E6200/6200).
     file3 = pipeline_outputs["by_cc_files"][3]
-    row = file3[file3["CC"] == "4001"]
-    assert len(row) == 1
-    assert row["배부전금액"].iloc[0] == pytest.approx(0.0)
-    assert row["3차후금액"].iloc[0] == pytest.approx(7_000_000.0)
-    assert row["배부합계"].iloc[0] == pytest.approx(7_000_000.0)
+    rows = file3[file3["CC"] == "4001"]
+    assert len(rows) >= 1
+    assert rows["배부전금액"].sum() == pytest.approx(0.0)
+    assert rows["3차후금액"].sum() == pytest.approx(7_000_000.0)
+    assert rows["배부합계"].sum() == pytest.approx(7_000_000.0)
 
 
 def test_cycle_only_cc_absent_from_by_coa(pipeline_outputs):
@@ -93,7 +95,7 @@ def test_no_unexpected_warnings_on_happy_path(loaded_inputs):
         )
         build_by_cc(
             loaded_inputs["cc_list"],
-            loaded_inputs["pre_alloc_cc"],
+            loaded_inputs["pre_alloc_enriched"],
             loaded_inputs["cycle_df"],
             sender_totals,
         )

@@ -12,6 +12,8 @@ from src.data.output import append_total_row, save_results
 
 def _by_cc_sample() -> pd.DataFrame:
     return pd.DataFrame({
+        "전기COA": ["E6100", "E6100"],
+        "기존COA": ["6100", "6100"],
         "CC": ["1001", "1002"],
         "배부전금액": [500_000.0, 300_000.0],
         "1차후금액": [100.0, 200.0],
@@ -34,6 +36,9 @@ def test_append_total_row_labels_cc_and_blanks_other_columns():
     total = result.iloc[-1]
     assert total["CC"] == "합계"
     assert total["1차후금액"] == ""
+    # The COA key columns are display-blank in the totals row.
+    assert total["전기COA"] == ""
+    assert total["기존COA"] == ""
 
 
 def test_append_total_row_rounds_to_integer():

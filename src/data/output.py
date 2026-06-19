@@ -12,11 +12,11 @@ def append_total_row(df: pd.DataFrame) -> pd.DataFrame:
     """Append a display-only totals row to a by_cc snapshot.
 
     배부전금액 and 배부합계 are summed and rounded to integers; CC is labelled
-    "합계" and the per-cycle 후금액 columns are left blank. Individual rows are
-    untouched and a
-    new frame is returned (the input is not mutated). Applied only when writing
-    the CSV, so the in-memory by_cc frames (used for conservation checks) keep
-    one row per CC.
+    "합계" and every other column (the 전기COA/기존COA keys and the per-cycle 후금액
+    columns) is left blank. Individual rows are untouched and a new frame is
+    returned (the input is not mutated). Applied only when writing the CSV, so the
+    in-memory by_cc frames (used for conservation checks) keep their
+    (전기COA, 기존COA, CC) rows.
 
     Parameters
     ----------
