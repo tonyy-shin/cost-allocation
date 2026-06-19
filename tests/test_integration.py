@@ -5,9 +5,9 @@ import warnings
 
 import pytest
 
-from src.allocation import build_by_cc, build_by_coa
-from src.output import save_results
-from src.prepare import build_enriched
+from src.core.allocation import build_by_cc, build_by_coa
+from src.data.output import save_results
+from src.core.prepare import build_enriched
 
 
 def test_end_to_end_writes_expected_tree(pipeline_outputs, tmp_path):

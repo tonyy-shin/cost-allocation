@@ -35,6 +35,8 @@ Thumbs.db
 
 # Block real data (never commit)
 data/
+# ...but keep the src/data code package (collides with the data/ rule above)
+!src/data/
 input/
 output/
 *.xlsx

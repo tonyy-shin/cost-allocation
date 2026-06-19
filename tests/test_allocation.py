@@ -4,7 +4,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from src.allocation import build_by_cc, build_by_coa
+from src.core.allocation import build_by_cc, build_by_coa
 
 
 def _row(df: pd.DataFrame, cc: str) -> pd.Series:

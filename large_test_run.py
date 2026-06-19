@@ -13,20 +13,20 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from src.loader import (
+from src.data.loader import (
     apply_category_dtypes, build_category_dtypes,
     load_coa_amount, load_cycle, load_mapping,
 )
-from src.prepare import (
+from src.core.prepare import (
     aggregate_detail, aggregate_for_allocation,
     assign_transfer_coa, calculate_coa_ratio, separate_common_direct,
     validate_sender_coverage,
 )
-from src.allocation import (
+from src.core.allocation import (
     aggregate_received_by_cycle, build_pivot_matrix,
     decompose_to_original_coa, run_allocation_loop,
 )
-from src.output import TOTAL_COL, build_result, save_result
+from src.data.output import TOTAL_COL, build_result, save_result
 
 import random
 

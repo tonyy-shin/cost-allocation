@@ -7,12 +7,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.loader import (
+from src.data.loader import (
     _normalize_cycle_ratios, _validate_local_path,
     apply_category_dtypes, build_category_dtypes,
     load_coa_amount, load_cycle, load_mapping,
 )
-from src.utils import (
+from src.data.utils import (
     normalize_code_column, parse_numeric_column, parse_percent_column,
 )
 

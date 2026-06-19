@@ -18,15 +18,15 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.loader import (  # noqa: E402
+from src.data.loader import (  # noqa: E402
     apply_category_dtypes, build_category_dtypes,
     load_coa_amount, load_cycle, load_mapping, load_override_amount,
     load_pre_allocation,
 )
-from src.prepare import (  # noqa: E402
+from src.core.prepare import (  # noqa: E402
     apply_override, build_enriched, fill_missing_cycle_cc,
 )
-from src.allocation import build_by_coa, build_by_cc  # noqa: E402
+from src.core.allocation import build_by_coa, build_by_cc  # noqa: E402
 
 
 @pytest.fixture

@@ -1,13 +1,13 @@
 from pathlib import Path
 import warnings
 
-from src.loader import (
+from src.data.loader import (
     apply_category_dtypes, build_category_dtypes,
     load_coa_amount, load_cycle, load_mapping, load_pre_allocation,
 )
-from src.prepare import build_enriched
-from src.allocation import build_by_coa, build_by_cc
-from src.output import save_results
+from src.core.prepare import build_enriched
+from src.core.allocation import build_by_coa, build_by_cc
+from src.data.output import save_results
 
 TEST_PATHS = {
     "coa_amount":     Path("sample_data/coa_amount.csv"),

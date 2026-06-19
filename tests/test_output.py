@@ -4,7 +4,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from src.output import append_total_row, save_results
+from src.data.output import append_total_row, save_results
 
 
 # append_total_row -----------------------------------------------------------

@@ -1,12 +1,12 @@
 from __future__ import annotations
 import sys
-from src.ui import prompt_file_paths, show_completion
+from src.ui.ui import prompt_file_paths, show_completion
 import warnings
 
 import pandas as pd
 
-from src.allocation import build_by_coa, build_by_cc
-from src.loader import (
+from src.core.allocation import build_by_coa, build_by_cc
+from src.data.loader import (
     apply_category_dtypes,
     build_category_dtypes,
     load_coa_amount,
@@ -15,8 +15,8 @@ from src.loader import (
     load_override_amount,
     load_pre_allocation,
 )
-from src.output import save_results
-from src.prepare import (
+from src.data.output import save_results
+from src.core.prepare import (
     apply_override,
     build_enriched,
     fill_missing_cycle_cc,
