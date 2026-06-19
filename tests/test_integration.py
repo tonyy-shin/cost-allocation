@@ -72,8 +72,9 @@ def test_cycle_only_cc_appears_in_by_cc(pipeline_outputs):
 
 
 def test_cycle_only_cc_absent_from_by_coa(pipeline_outputs):
-    # COA is NaN for the filled CC, so it is a non-common row and must not appear
-    # in by_coa (which is keyed by 기존COA / Sender CC for common costs).
+    # COA is NaN for the filled CC, so it is a non-common row and never sends a
+    # common cost: it must not appear as a Sender CC in by_coa. It may appear as a
+    # Receiver CC (cycle 3 routes 1001 → 4001), which is expected.
     by_coa = pipeline_outputs["by_coa_df"]
     assert "4001" not in set(by_coa["Sender CC"].astype(str))
 
