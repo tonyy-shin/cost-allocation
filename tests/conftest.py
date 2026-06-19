@@ -52,13 +52,17 @@ def loaded_inputs(sample_paths) -> dict:
     Returns
     -------
     dict with keys:
-        coa_df, mapping_df, cycle_df, pre_alloc_cc, raw_coa_df, cc_list,
+        coa_df, mapping_df, cycle_df, pre_alloc_enriched, raw_coa_df, cc_list,
         cat_dtypes
     """
     coa_df = load_coa_amount(sample_paths["coa_amount"])
     mapping_df = load_mapping(sample_paths["mapping"])
     cycle_df = load_cycle(sample_paths["cycle"])
-    pre_alloc_cc = load_pre_allocation(sample_paths["pre_allocation"])
+    pre_alloc_df = load_pre_allocation(sample_paths["pre_allocation"])
+
+    # Enrich pre_allocation while mapping_df is still str-typed (cf.
+    # main._load_inputs) so the COA join stays object/object.
+    pre_alloc_enriched = build_enriched(pre_alloc_df, mapping_df)
 
     # Add cycle-only CCs before dtype harmonization (cf. main._load_inputs).
     coa_df = fill_missing_cycle_cc(coa_df, cycle_df)
@@ -74,7 +78,7 @@ def loaded_inputs(sample_paths) -> dict:
         "coa_df": coa_df,
         "mapping_df": mapping_df,
         "cycle_df": cycle_df,
-        "pre_alloc_cc": pre_alloc_cc,
+        "pre_alloc_enriched": pre_alloc_enriched,
         "raw_coa_df": raw_coa_df,
         "cc_list": cc_list,
         "cat_dtypes": cat_dtypes,
@@ -93,12 +97,12 @@ def pipeline_outputs(loaded_inputs) -> dict:
     coa_df = loaded_inputs["coa_df"]
     mapping_df = loaded_inputs["mapping_df"]
     cycle_df = loaded_inputs["cycle_df"]
-    pre_alloc_cc = loaded_inputs["pre_alloc_cc"]
+    pre_alloc_enriched = loaded_inputs["pre_alloc_enriched"]
     cc_list = loaded_inputs["cc_list"]
 
     enriched = build_enriched(coa_df, mapping_df)
     by_coa_df, sender_totals = build_by_coa(enriched, cycle_df)
-    by_cc_files = build_by_cc(cc_list, pre_alloc_cc, cycle_df, sender_totals)
+    by_cc_files = build_by_cc(cc_list, pre_alloc_enriched, cycle_df, sender_totals)
 
     return {
         "enriched": enriched,

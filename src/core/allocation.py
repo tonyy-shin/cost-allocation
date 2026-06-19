@@ -53,7 +53,9 @@ def build_by_coa(
                         1..n차배부금액, "", 1..n차배부합계. Each per-row
                         n차배부금액 is the sender's cycle-n amount split by the
                         (Sender → Receiver) ratio from cycle.csv.
-        sender_totals : {cycle: {Sender CC: total distributed in that cycle}}.
+        sender_totals : {cycle: {(전기COA, 기존COA, Sender CC): total distributed
+                        in that cycle}}. Keyed by COA pair so by_cc can carry the
+                        money's COA identity through the bucket simulation.
     """
     common = enriched[enriched["전기COA"].astype(str) != ""].copy()
     # Normalize keys to str for stable grouping/merging and clean CSV output.
@@ -75,11 +77,18 @@ def build_by_coa(
             .reset_index()
             .rename(columns={"Cost Center": "Sender CC", "Amounts": _amt_col(n)})
         )
-        # sender_totals stays sender-level (pre-explode, ratio-free) so by_cc's
-        # math is unchanged.
-        sender_totals[n] = (
-            grouped.groupby("Sender CC")[_amt_col(n)].sum().to_dict()
-        )
+        # sender_totals stays pre-explode and ratio-free, but keyed by the full
+        # (전기COA, 기존COA, Sender CC) pair so by_cc can preserve each amount's
+        # COA identity. `grouped` is already unique per that triple.
+        sender_totals[n] = {
+            (str(e), str(b), str(s)): float(amt)
+            for e, b, s, amt in zip(
+                grouped["전기COA"],
+                grouped["기존COA"],
+                grouped["Sender CC"],
+                grouped[_amt_col(n)],
+            )
+        }
 
         # Explode each sender amount into (Sender → Receiver) shares using the
         # cycle's ratios. Sender CC is forced to str so the merge keys line up
@@ -129,85 +138,119 @@ def build_by_coa(
 
 def build_by_cc(
     cc_list: list[str],
-    pre_alloc_cc: dict[str, float],
+    pre_alloc_enriched: pd.DataFrame,
     cycle_df: pd.DataFrame,
-    sender_totals: dict[int, dict[str, float]],
+    sender_totals: dict[int, dict[tuple[str, str, str], float]],
 ) -> dict[int, pd.DataFrame]:
-    """Build one settled by_cc snapshot per cycle.
+    """Build one settled by_cc snapshot per cycle, keyed by (전기COA, 기존COA, CC).
 
-    Each CC's balance is tracked as labeled buckets (label 0 = 배부전금액;
+    Money keeps its COA identity through the simulation: each balance is tracked
+    as labeled buckets under a (전기COA, 기존COA, CC) key (label 0 = 배부전금액;
     label k = money that arrived in cycle k). Per cycle k, in ascending order:
 
-    - Receivers gain ``sender_total * ratio`` from each of their senders, labeled
-      with cycle k.
-    - Senders are drained by their ``sender_totals[k]`` amount, consuming received
-      buckets first (oldest cycle first) and the original (label 0) bucket last.
-      The amount comes from coa_amount and is independent of the pre_allocation
-      balance, so label 0 may go negative — subtracted unconditionally, no warning.
+    - Receivers gain ``sender_total * ratio`` from each of their senders, credited
+      under the *sender's* COA pair and labeled with cycle k.
+    - Senders are drained by their ``sender_totals[k]`` amount within the *same*
+      COA pair, consuming received buckets first (oldest cycle first) and the
+      original (label 0) bucket last. The amount comes from coa_amount and is
+      independent of the pre_allocation balance, so label 0 may go negative —
+      subtracted unconditionally, no warning.
 
     In file n, ``k차후금액`` (k < n) is bucket k of the state after cycle n, and
     ``n차후금액`` folds in the still-held original (label 0) balance — so static
     money (never sent/received) lands in the last column. ``배부합계`` is the
-    row-wise sum of the 후금액 columns and equals the CC's final balance, giving
-    ``배부전 total == 배부합계 total`` per file.
+    row-wise sum of the 후금액 columns and equals that key's final balance, giving
+    ``배부전 total == 배부합계 total`` both overall and per (전기COA, 기존COA) pair.
+
+    Every CC in ``cc_list`` is guaranteed at least one row: a CC with no COA pair
+    of its own (no 배부전 and never received) gets a single all-zero row with
+    전기COA="" and 기존COA="" so it is never dropped from the output.
 
     Parameters
     ----------
-    cc_list       : All Cost Center codes from coa_amount.csv (one row per CC).
-    pre_alloc_cc  : load_pre_allocation result. {CC: 배부전금액} (0 if absent).
-    cycle_df      : load_cycle result.
-    sender_totals : build_by_coa's second return value.
+    cc_list            : All Cost Center codes from coa_amount.csv.
+    pre_alloc_enriched : build_enriched applied to load_pre_allocation. Columns:
+                         전기COA, 기존COA, Cost Center, Amounts.
+    cycle_df           : load_cycle result.
+    sender_totals      : build_by_coa's second return value, keyed by
+                         (전기COA, 기존COA, Sender CC).
 
     Returns
     -------
     dict[int, pd.DataFrame]
         {cycle n: DataFrame with columns
-         CC, 배부전금액, 1차후금액 .. n차후금액, 배부합계}.
+         전기COA, 기존COA, CC, 배부전금액, 1차후금액 .. n차후금액, 배부합계}.
     """
     cycles = sorted(int(c) for c in cycle_df["차수"].unique())
     ccs = [str(cc) for cc in cc_list]
-    pre = {str(k): float(v) for k, v in pre_alloc_cc.items()}
 
-    bal: dict[str, dict[int, float]] = {cc: {0: pre.get(cc, 0.0)} for cc in ccs}
-    snapshots: dict[int, dict[str, dict[int, float]]] = {}
+    # Original 배부전금액 per (전기COA, 기존COA, CC), kept separate so the
+    # 배부전금액 column reports the pre-drain amount even after label 0 is drained.
+    pre: dict[tuple[str, str, str], float] = {}
+    for e, b, cc, amt in zip(
+        pre_alloc_enriched["전기COA"].astype(str),
+        pre_alloc_enriched["기존COA"].astype(str),
+        pre_alloc_enriched["Cost Center"].astype(str),
+        pre_alloc_enriched["Amounts"],
+    ):
+        key = (e, b, cc)
+        pre[key] = pre.get(key, 0.0) + float(amt)
+
+    bal: dict[tuple[str, str, str], dict[int, float]] = {
+        key: {0: amt} for key, amt in pre.items()
+    }
+    snapshots: dict[int, dict[tuple[str, str, str], dict[int, float]]] = {}
 
     for k in cycles:
         rows = cycle_df[cycle_df["차수"] == k]
         senders = sender_totals.get(k, {})
 
-        # Receivers: credit inflow, labeled with the current cycle.
+        # Receivers: credit inflow under the sender's COA pair, labeled cycle k.
         for sender, receiver, pct in zip(
             rows["Sender CC"].astype(str),
             rows["Receiver CC"].astype(str),
             rows["%"],
         ):
-            total = float(senders.get(sender, 0.0))
-            if receiver in bal:
-                bal[receiver][k] = bal[receiver].get(k, 0.0) + total * float(pct)
+            for (e, b, s), total in senders.items():
+                if s != sender:
+                    continue
+                key = (e, b, receiver)
+                bucket = bal.setdefault(key, {})
+                bucket[k] = bucket.get(k, 0.0) + float(total) * float(pct)
 
-        # Senders: drain received buckets first, then the original bucket.
-        for sender in {str(s) for s in rows["Sender CC"]}:
-            if sender not in bal:
+        # Senders: drain received buckets first, then the original bucket, within
+        # the same COA pair.
+        for (e, b, s), total in senders.items():
+            if s not in {str(x) for x in rows["Sender CC"]}:
                 continue
-            remaining = float(senders.get(sender, 0.0))
-            for label in sorted(lbl for lbl in bal[sender] if lbl != 0):
+            key = (e, b, s)
+            bucket = bal.setdefault(key, {})
+            remaining = float(total)
+            for label in sorted(lbl for lbl in bucket if lbl != 0):
                 if remaining <= 0:
                     break
-                take = min(bal[sender][label], remaining)
-                bal[sender][label] -= take
+                take = min(bucket[label], remaining)
+                bucket[label] -= take
                 remaining -= take
-            bal[sender][0] = bal[sender].get(0, 0.0) - remaining
+            bucket[0] = bucket.get(0, 0.0) - remaining
 
-        snapshots[k] = {cc: dict(labels) for cc, labels in bal.items()}
+        snapshots[k] = {key: dict(labels) for key, labels in bal.items()}
 
     files: dict[int, pd.DataFrame] = {}
     for n in cycles:
         snap = snapshots[n]
         after_cols = [_after_col(k) for k in cycles if k <= n]
         records = []
-        for cc in ccs:
-            labels = snap.get(cc, {})
-            row: dict[str, object] = {"CC": cc, "배부전금액": pre.get(cc, 0.0)}
+        covered_ccs: set[str] = set()
+        for (e, b, cc) in sorted(snap):
+            labels = snap[(e, b, cc)]
+            covered_ccs.add(cc)
+            row: dict[str, object] = {
+                "전기COA": e,
+                "기존COA": b,
+                "CC": cc,
+                "배부전금액": pre.get((e, b, cc), 0.0),
+            }
             for k in cycles:
                 if k > n:
                     continue
@@ -217,8 +260,22 @@ def build_by_cc(
                 row[_after_col(k)] = val
             row["배부합계"] = sum(row[c] for c in after_cols)
             records.append(row)
-        files[n] = pd.DataFrame.from_records(
-            records, columns=["CC", "배부전금액"] + after_cols + ["배부합계"]
+
+        # Option B: guarantee every CC at least one row. A CC with no COA pair of
+        # its own gets a single all-zero, blank-COA row.
+        for cc in ccs:
+            if cc in covered_ccs:
+                continue
+            row = {"전기COA": "", "기존COA": "", "CC": cc, "배부전금액": 0.0}
+            for c in after_cols:
+                row[c] = 0.0
+            row["배부합계"] = 0.0
+            records.append(row)
+
+        df = pd.DataFrame.from_records(
+            records,
+            columns=["전기COA", "기존COA", "CC", "배부전금액"] + after_cols + ["배부합계"],
         )
+        files[n] = df.sort_values(["전기COA", "기존COA", "CC"]).reset_index(drop=True)
 
     return files
