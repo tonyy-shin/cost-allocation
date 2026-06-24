@@ -81,9 +81,11 @@ def test_cycle_only_cc_absent_from_by_coa(pipeline_outputs):
     assert "4001" not in set(by_coa["Sender CC"].astype(str))
 
 
-def test_no_unexpected_warnings_on_happy_path(loaded_inputs):
-    # The build stage (enrichment + both output builders) is warning-free for
-    # well-formed sample data.
+def test_only_expected_warning_on_happy_path(loaded_inputs):
+    # The build stage emits no surprise warnings for well-formed sample data,
+    # except the expected unmapped-COA notice: sample_data's COA 7100 has no
+    # 전기COA mapping yet sits on sender CCs 1001/2001, so build_by_coa flags the
+    # amounts it leaves unallocated.
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
 
@@ -100,4 +102,9 @@ def test_no_unexpected_warnings_on_happy_path(loaded_inputs):
             sender_totals,
         )
 
-    assert [str(w.message) for w in caught] == []
+    messages = [str(w.message) for w in caught]
+    assert len(messages) == 1
+    msg = messages[0]
+    assert msg.startswith("전기COA 매핑이 없어 배부에서 제외된 항목이 있습니다.")
+    assert "COA 7100 / Sender CC 1001: 10,000,000" in msg
+    assert "COA 7100 / Sender CC 2001: 6,000,000" in msg

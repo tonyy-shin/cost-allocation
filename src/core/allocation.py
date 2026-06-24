@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from functools import reduce
 
 import pandas as pd
@@ -57,6 +58,30 @@ def build_by_coa(
                         in that cycle}}. Keyed by COA pair so by_cc can carry the
                         money's COA identity through the bucket simulation.
     """
+    # Surface unmapped COAs (no 전기COA mapping) that sit on a sender CC: their
+    # money is excluded from allocation by the common-cost filter below and would
+    # otherwise remain as a silent residual balance on the sender.
+    senders = set(cycle_df["Sender CC"].astype(str))
+    excluded = enriched[
+        (enriched["전기COA"].astype(str) == "")
+        & enriched["기존COA"].astype(str).str.strip().ne("")
+        & enriched["기존COA"].astype(str).str.lower().ne("nan")
+        & enriched["Cost Center"].isin(senders)
+        & (enriched["Amounts"] != 0)
+    ]
+    if not excluded.empty:
+        lines = []
+        for (coa, cc), grp in excluded.groupby(
+            ["기존COA", "Cost Center"], observed=True
+        ):
+            amount = int(grp["Amounts"].sum())
+            lines.append(f"  - COA {coa} / Sender CC {cc}: {amount:,}")
+        warnings.warn(
+            "전기COA 매핑이 없어 배부에서 제외된 항목이 있습니다. "
+            "해당 금액은 배부되지 않고 잔액으로 남습니다.\n"
+            + "\n".join(lines)
+        )
+
     common = enriched[enriched["전기COA"].astype(str) != ""].copy()
     # Normalize keys to str for stable grouping/merging and clean CSV output.
     for col in ("전기COA", "기존COA", "Cost Center"):
