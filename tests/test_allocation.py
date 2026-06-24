@@ -1,6 +1,8 @@
 """Tests for src.allocation: by_coa table and by_cc settled snapshots."""
 from __future__ import annotations
 
+import warnings
+
 import pandas as pd
 import pytest
 
@@ -70,6 +72,57 @@ def test_by_coa_sender_totals_are_keyed_by_coa_pair(pipeline_outputs):
         ("E6100", "6100", "2001"): pytest.approx(3_000_000.0),
         ("E6200", "6200", "2001"): pytest.approx(500_000.0),
     }
+
+
+# by_coa: unmapped-COA warning ----------------------------------------------
+
+
+def _enriched(rows: list[tuple[str, str, str, float]]) -> pd.DataFrame:
+    """Build an enriched frame from (전기COA, 기존COA, Cost Center, amount) rows."""
+    return pd.DataFrame(
+        rows, columns=["전기COA", "기존COA", "Cost Center", "Amounts"]
+    )
+
+
+def test_by_coa_warns_for_unmapped_coa_on_sender():
+    # D9 has no 전기COA mapping ("") and sits on sender S, so its 700 is excluded
+    # from allocation: build_by_coa warns with the per-(COA, Sender CC) amount.
+    # D9 on the non-sender X, and the zero-amount unmapped row, must not be flagged.
+    enriched = _enriched([
+        ("E1", "C1", "S", 1000.0),
+        ("", "D9", "S", 700.0),
+        ("", "D9", "X", 500.0),
+        ("", "D8", "S", 0.0),
+    ])
+    cycle_df = pd.DataFrame({
+        "차수": [1], "Sender CC": ["S"], "Receiver CC": ["R"], "%": [1.0],
+    })
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        build_by_coa(enriched, cycle_df)
+
+    messages = [str(w.message) for w in caught]
+    assert len(messages) == 1
+    msg = messages[0]
+    assert msg.startswith("전기COA 매핑이 없어 배부에서 제외된 항목이 있습니다.")
+    assert "COA D9 / Sender CC S: 700" in msg
+    assert "Sender CC X" not in msg
+    assert "D8" not in msg
+
+
+def test_by_coa_no_warning_when_all_sender_coas_mapped():
+    # Every COA on the sender has a 전기COA mapping, so nothing is excluded.
+    enriched = _enriched([("E1", "C1", "S", 1000.0)])
+    cycle_df = pd.DataFrame({
+        "차수": [1], "Sender CC": ["S"], "Receiver CC": ["R"], "%": [1.0],
+    })
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        build_by_coa(enriched, cycle_df)
+
+    assert [str(w.message) for w in caught] == []
 
 
 # by_cc ----------------------------------------------------------------------
