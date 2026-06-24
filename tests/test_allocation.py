@@ -221,8 +221,9 @@ def _pre_alloc(rows: list[tuple[str, str, str, float]]) -> pd.DataFrame:
 
 def test_by_cc_pass_through_nets_out():
     # CC_A sends 1,000 in cycle 1 to CC_B; CC_B sends that 1,000 in cycle 2 to
-    # CC_C. Money passing through CC_B nets to 0 in its 1차후금액. All of it stays
-    # in the (E1, C1) COA pair.
+    # CC_C. CC_B has no book common cost of its own (no sender_totals entry) — the
+    # live cascade forwards what it received with no hand-crafted sender total.
+    # Money passing through CC_B nets to 0 in its 1차후금액 and stays in (E1, C1).
     cc_list = ["A", "B", "C"]
     pre_alloc = _pre_alloc([("E1", "C1", "A", 1000.0)])
     cycle_df = pd.DataFrame({
@@ -231,7 +232,7 @@ def test_by_cc_pass_through_nets_out():
         "Receiver CC": ["B", "C"],
         "%": [1.0, 1.0],
     })
-    sender_totals = {1: {("E1", "C1", "A"): 1000.0}, 2: {("E1", "C1", "B"): 1000.0}}
+    sender_totals = {1: {("E1", "C1", "A"): 1000.0}}
 
     files = build_by_cc(cc_list, pre_alloc, cycle_df, sender_totals)
 
@@ -247,6 +248,37 @@ def test_by_cc_pass_through_nets_out():
     assert _row(file2, "C", "E1", "C1")["2차후금액"] == pytest.approx(1000.0)
     # Conservation holds in both files.
     for f in (file1, file2):
+        assert f["배부합계"].sum() == pytest.approx(f["배부전금액"].sum())
+
+
+def test_by_cc_book_cost_distributed_once_then_only_receipts():
+    # X has its own book common cost (1,000) and sends it in cycle 1. In cycle 2
+    # X receives 400 from Y. In cycle 3 X is a sender again: under the live
+    # cascade it forwards only the 400 it received since its last send — its book
+    # cost is not re-distributed.
+    cc_list = ["X", "Y", "R1", "R2"]
+    pre_alloc = _pre_alloc([("E1", "C1", "X", 1000.0), ("E1", "C1", "Y", 400.0)])
+    cycle_df = pd.DataFrame({
+        "차수": [1, 2, 3],
+        "Sender CC": ["X", "Y", "X"],
+        "Receiver CC": ["R1", "X", "R2"],
+        "%": [1.0, 1.0, 1.0],
+    })
+    sender_totals = {
+        1: {("E1", "C1", "X"): 1000.0},
+        2: {("E1", "C1", "Y"): 400.0},
+        3: {("E1", "C1", "X"): 1000.0},  # static; ignored by the cascade in c3
+    }
+
+    files = build_by_cc(cc_list, pre_alloc, cycle_df, sender_totals)
+
+    # Cycle 1: X forwards its 1,000 book cost to R1.
+    assert _row(files[1], "R1", "E1", "C1")["1차후금액"] == pytest.approx(1000.0)
+    # Cycle 3: X forwards only the 400 received in cycle 2 to R2 (not 1,000).
+    assert _row(files[3], "R2", "E1", "C1")["3차후금액"] == pytest.approx(400.0)
+    assert _row(files[3], "R2", "E1", "C1")["배부합계"] == pytest.approx(400.0)
+    # Conservation holds in every file.
+    for f in files.values():
         assert f["배부합계"].sum() == pytest.approx(f["배부전금액"].sum())
 
 

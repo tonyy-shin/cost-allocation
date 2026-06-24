@@ -171,15 +171,33 @@ def build_by_cc(
 
     Money keeps its COA identity through the simulation: each balance is tracked
     as labeled buckets under a (전기COA, 기존COA, CC) key (label 0 = 배부전금액;
-    label k = money that arrived in cycle k). Per cycle k, in ascending order:
+    label k = money that arrived in cycle k).
 
-    - Receivers gain ``sender_total * ratio`` from each of their senders, credited
-      under the *sender's* COA pair and labeled with cycle k.
-    - Senders are drained by their ``sender_totals[k]`` amount within the *same*
-      COA pair, consuming received buckets first (oldest cycle first) and the
-      original (label 0) bucket last. The amount comes from coa_amount and is
-      independent of the pre_allocation balance, so label 0 may go negative —
-      subtracted unconditionally, no warning.
+    Distribution is a **live cascade**, not a fixed per-cycle total. A separate
+    ``dist`` map tracks each CC's currently-held common-cost amount (전기COA != "")
+    that has not yet been forwarded. It is seeded from each sender's static book
+    common cost (``sender_totals``); a CC's own book cost is therefore distributed
+    **once** — the first cycle it sends — after which only money it has *received*
+    refills ``dist``. So a CC that receives in cycle n and sends in cycle n+1
+    forwards only what it received since its last send. Direct-cost money
+    (전기COA == "") never enters ``dist`` and is never redistributed — the
+    per-cycle equivalent of the 전기COA != "" common-cost filter.
+
+    Per cycle k, in ascending order:
+
+    - Each active sender's distributable amount is snapshotted at cycle start, so
+      money received *within* cycle k is not forwarded until cycle k+1.
+    - Receivers gain ``sender_dist * ratio`` from each of their senders, credited
+      under the *sender's* COA pair and labeled with cycle k; that inflow also
+      grows the receiver's own distributable amount for later cycles.
+    - Senders are drained by their snapshotted distributable amount within the
+      *same* COA pair, consuming received buckets first (oldest cycle first) and
+      the original (label 0) bucket last. The amount is independent of the
+      pre_allocation balance, so label 0 may go negative — subtracted
+      unconditionally, no warning.
+
+    The 배부금액 view (``build_by_coa``) intentionally keeps its static
+    coa_amount totals, so the two reports may differ on later-cycle amounts.
 
     In file n, ``k차후금액`` (k < n) is bucket k of the state after cycle n, and
     ``n차후금액`` folds in the still-held original (label 0) balance — so static
@@ -224,33 +242,50 @@ def build_by_cc(
     bal: dict[tuple[str, str, str], dict[int, float]] = {
         key: {0: amt} for key, amt in pre.items()
     }
+
+    # Live distributable common-cost amount per (전기COA, 기존COA, CC). Seeded from
+    # each sender's static book common cost (sender_totals values are identical
+    # per key across cycles, so setdefault picks the right one). Only common-cost
+    # money lands here, so direct costs are never redistributed.
+    dist: dict[tuple[str, str, str], float] = {}
+    for k in cycles:
+        for key, total in sender_totals.get(k, {}).items():
+            dist.setdefault(key, float(total))
+
     snapshots: dict[int, dict[tuple[str, str, str], dict[int, float]]] = {}
 
     for k in cycles:
         rows = cycle_df[cycle_df["차수"] == k]
-        senders = sender_totals.get(k, {})
+        cycle_senders = {str(x) for x in rows["Sender CC"]}
 
-        # Receivers: credit inflow under the sender's COA pair, labeled cycle k.
+        # Snapshot each active sender's distributable amount at cycle start, so
+        # money received within cycle k is not forwarded until cycle k+1.
+        sends = {
+            (e, b, s): amt
+            for (e, b, s), amt in dist.items()
+            if s in cycle_senders and amt != 0.0
+        }
+
+        # Receivers: credit inflow under the sender's COA pair, labeled cycle k,
+        # and grow the receiver's own distributable amount for later cycles.
         for sender, receiver, pct in zip(
             rows["Sender CC"].astype(str),
             rows["Receiver CC"].astype(str),
             rows["%"],
         ):
-            for (e, b, s), total in senders.items():
+            for (e, b, s), amt in sends.items():
                 if s != sender:
                     continue
-                key = (e, b, receiver)
-                bucket = bal.setdefault(key, {})
-                bucket[k] = bucket.get(k, 0.0) + float(total) * float(pct)
+                flow = amt * float(pct)
+                bucket = bal.setdefault((e, b, receiver), {})
+                bucket[k] = bucket.get(k, 0.0) + flow
+                dist[(e, b, receiver)] = dist.get((e, b, receiver), 0.0) + flow
 
         # Senders: drain received buckets first, then the original bucket, within
-        # the same COA pair.
-        for (e, b, s), total in senders.items():
-            if s not in {str(x) for x in rows["Sender CC"]}:
-                continue
-            key = (e, b, s)
-            bucket = bal.setdefault(key, {})
-            remaining = float(total)
+        # the same COA pair; zero out the distributable amount that was sent.
+        for (e, b, s), amt in sends.items():
+            bucket = bal.setdefault((e, b, s), {})
+            remaining = amt
             for label in sorted(lbl for lbl in bucket if lbl != 0):
                 if remaining <= 0:
                     break
@@ -258,6 +293,7 @@ def build_by_cc(
                 bucket[label] -= take
                 remaining -= take
             bucket[0] = bucket.get(0, 0.0) - remaining
+            dist[(e, b, s)] -= amt
 
         snapshots[k] = {key: dict(labels) for key, labels in bal.items()}
 

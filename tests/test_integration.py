@@ -63,14 +63,17 @@ def test_by_coa_amounts_nonzero(pipeline_outputs):
 
 def test_cycle_only_cc_appears_in_by_cc(pipeline_outputs):
     # 4001 is a receiver in cycle.csv but absent from coa_amount.csv. It must be
-    # filled in (배부전금액 0) and still receive its cycle-3 allocation (7,000,000),
-    # now spread across the COA pairs it received (E6100/6100 + E6200/6200).
+    # filled in (배부전금액 0) and still receive its cycle-3 allocation. Under the
+    # live cascade, 1001 already forwarded its 7,000,000 book cost in cycle 1, so
+    # in cycle 3 it forwards only what it received in cycle 2 from 2001
+    # (0.5×3,000,000 E6100 + 0.5×500,000 E6200 = 1,750,000), spread across the
+    # COA pairs it received.
     file3 = pipeline_outputs["by_cc_files"][3]
     rows = file3[file3["CC"] == "4001"]
     assert len(rows) >= 1
     assert rows["배부전금액"].sum() == pytest.approx(0.0)
-    assert rows["3차후금액"].sum() == pytest.approx(7_000_000.0)
-    assert rows["배부합계"].sum() == pytest.approx(7_000_000.0)
+    assert rows["3차후금액"].sum() == pytest.approx(1_750_000.0)
+    assert rows["배부합계"].sum() == pytest.approx(1_750_000.0)
 
 
 def test_cycle_only_cc_absent_from_by_coa(pipeline_outputs):
