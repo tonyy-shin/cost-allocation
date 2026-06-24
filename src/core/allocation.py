@@ -186,8 +186,9 @@ def build_by_cc(
     is the snapshot of this state after cycle k, so in any file a sender's row
     reads 0 in its own cycle and a receiver's row reads its 원본 amount.
 
-    ``배부전금액`` is 0 for 1차 sender CCs and the 원본 amount for every other CC.
-    ``배부합계`` is the final resting balance — the last 후금액 column of the file.
+    ``배부전금액`` is the 원본 amount for 1차 sender CCs and 0 for every other CC — the
+    before-allocation balance, matching 복사본's initial layout. There is no 배부합계
+    column; each 후금액 column stands alone as that cycle's balance snapshot.
 
     Every CC in ``cc_list`` is guaranteed at least one row: a CC absent from
     ``enriched`` gets a single all-zero row with 전기COA="" and 기존COA="" so it is
@@ -206,7 +207,7 @@ def build_by_cc(
     -------
     dict[int, pd.DataFrame]
         {cycle n: DataFrame with columns
-         전기COA, 기존COA, CC, 배부전금액, 1차후금액 .. n차후금액, 배부합계}.
+         전기COA, 기존COA, CC, 배부전금액, 1차후금액 .. n차후금액}.
     """
     cycles = sorted(int(c) for c in cycle_df["차수"].unique())
     ccs = [str(cc) for cc in cc_list]
@@ -287,13 +288,12 @@ def build_by_cc(
                 "전기COA": e,
                 "기존COA": b,
                 "CC": cc,
-                "배부전금액": 0.0 if cc in first_senders else 원본[key],
+                "배부전금액": 원본[key] if cc in first_senders else 0.0,
             }
             for k in cycles:
                 if k > n:
                     continue
                 row[_after_col(k)] = snapshots[k].get(key, 0.0)
-            row["배부합계"] = row[_after_col(n)]
             records.append(row)
 
         # Option B: guarantee every CC at least one row. A CC absent from 원본
@@ -304,12 +304,11 @@ def build_by_cc(
             row = {"전기COA": "", "기존COA": "", "CC": cc, "배부전금액": 0.0}
             for c in after_cols:
                 row[c] = 0.0
-            row["배부합계"] = 0.0
             records.append(row)
 
         df = pd.DataFrame.from_records(
             records,
-            columns=["전기COA", "기존COA", "CC", "배부전금액"] + after_cols + ["배부합계"],
+            columns=["전기COA", "기존COA", "CC", "배부전금액"] + after_cols,
         )
         files[n] = df.sort_values(["전기COA", "기존COA", "CC"]).reset_index(drop=True)
 

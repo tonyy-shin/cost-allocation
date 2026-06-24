@@ -34,15 +34,15 @@ def test_end_to_end_writes_expected_tree(pipeline_outputs, tmp_path):
     assert (out / "잔액" / "2차배부후.csv").exists()
 
 
-def test_end_to_end_first_sender_balance_is_zero(pipeline_outputs):
-    # 1001 is the sole 1차 sender, so every one of its rows reports 배부전금액 = 0
-    # in every file; non-1차 CCs keep their 원본 amount (1003 holds 6100=3,500,000
-    # + 6200=1,400,000).
+def test_end_to_end_first_sender_keeps_원본(pipeline_outputs):
+    # 배부전금액 is the before-allocation balance: 1001 is the sole 1차 sender, so it
+    # keeps its full 원본 amount (6100=5M + 6200=2M + 7100=10M); every non-1차 CC
+    # reports 0 (1003 holds 원본 but is not a 1차 sender).
     for df in pipeline_outputs["by_cc_files"].values():
-        assert (df.loc[df["CC"] == "1001", "배부전금액"] == 0.0).all()
-        assert df.loc[df["CC"] == "1003", "배부전금액"].sum() == pytest.approx(
-            3_500_000.0 + 1_400_000.0
+        assert df.loc[df["CC"] == "1001", "배부전금액"].sum() == pytest.approx(
+            5_000_000.0 + 2_000_000.0 + 10_000_000.0
         )
+        assert df.loc[df["CC"] == "1003", "배부전금액"].sum() == pytest.approx(0.0)
 
 
 def test_end_to_end_receiver_rows_match_원본(pipeline_outputs):

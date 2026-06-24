@@ -11,16 +11,16 @@ import pandas as pd
 def append_total_row(df: pd.DataFrame) -> pd.DataFrame:
     """Append a display-only totals row to a by_cc snapshot.
 
-    배부전금액 and 배부합계 are summed and rounded to integers; CC is labelled
-    "합계" and every other column (the 전기COA/기존COA keys and the per-cycle 후금액
-    columns) is left blank. Individual rows are untouched and a new frame is
+    Every numeric column — 배부전금액 and each per-cycle 후금액 snapshot — is summed
+    and rounded to an integer; CC is labelled "합계" and the 전기COA/기존COA key
+    columns are left blank. Individual rows are untouched and a new frame is
     returned (the input is not mutated). Applied only when writing the CSV, so the
-    in-memory by_cc frames (used for conservation checks) keep their
-    (전기COA, 기존COA, CC) rows.
+    in-memory by_cc frames keep their (전기COA, 기존COA, CC) rows.
 
     Parameters
     ----------
-    df : One by_cc per-cycle snapshot. Must contain 배부전금액 and 배부합계.
+    df : One by_cc per-cycle snapshot. Columns 전기COA, 기존COA, CC, 배부전금액 and
+         one or more n차후금액 columns.
 
     Returns
     -------
@@ -29,8 +29,10 @@ def append_total_row(df: pd.DataFrame) -> pd.DataFrame:
     """
     total = {col: "" for col in df.columns}
     total["CC"] = "합계"
-    total["배부전금액"] = int(round(df["배부전금액"].sum(), 0))
-    total["배부합계"] = int(round(df["배부합계"].sum(), 0))
+    for col in df.columns:
+        if col in ("전기COA", "기존COA", "CC"):
+            continue
+        total[col] = int(round(df[col].sum(), 0))
     total_row = pd.DataFrame([total], columns=df.columns)
     return pd.concat([df, total_row], ignore_index=True)
 

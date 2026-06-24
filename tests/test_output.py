@@ -17,7 +17,7 @@ def _by_cc_sample() -> pd.DataFrame:
         "CC": ["1001", "1002"],
         "배부전금액": [500_000.0, 300_000.0],
         "1차후금액": [100.0, 200.0],
-        "배부합계": [500_100.0, 300_200.0],
+        "2차후금액": [10.0, 20.0],
     })
 
 
@@ -27,16 +27,20 @@ def test_append_total_row_adds_row_at_bottom():
 
     assert len(result) == len(df) + 1
     total = result.iloc[-1]
+    # 배부전금액 and every 후금액 column are summed.
     assert total["배부전금액"] == 800_000
-    assert total["배부합계"] == 800_300
+    assert total["1차후금액"] == 300
+    assert total["2차후금액"] == 30
 
 
-def test_append_total_row_labels_cc_and_blanks_other_columns():
+def test_append_total_row_labels_cc_and_sums_amount_columns():
     result = append_total_row(_by_cc_sample())
     total = result.iloc[-1]
     assert total["CC"] == "합계"
-    assert total["1차후금액"] == ""
-    # The COA key columns are display-blank in the totals row.
+    # 후금액 columns are summed in the totals row (not blanked).
+    assert total["1차후금액"] == 300
+    assert total["2차후금액"] == 30
+    # Only the COA key columns are display-blank in the totals row.
     assert total["전기COA"] == ""
     assert total["기존COA"] == ""
 
@@ -45,12 +49,12 @@ def test_append_total_row_rounds_to_integer():
     df = pd.DataFrame({
         "CC": ["a", "b"],
         "배부전금액": [100.4, 100.4],
-        "배부합계": [0.5, 0.5],
+        "1차후금액": [0.5, 0.5],
     })
     total = append_total_row(df).iloc[-1]
     # 200.8 -> 201; 1.0 -> 1. Values are whole numbers (no float noise).
     assert total["배부전금액"] == 201
-    assert total["배부합계"] == 1
+    assert total["1차후금액"] == 1
 
 
 def test_append_total_row_leaves_individual_rows_and_input_untouched():
@@ -106,5 +110,5 @@ def test_save_results_by_cc_round_trips(pipeline_outputs, tmp_path):
     assert len(file1) == len(expected) + 1
     total = file1.iloc[-1]
     assert total["배부전금액"] == pytest.approx(expected["배부전금액"].sum())
-    assert total["배부합계"] == pytest.approx(expected["배부합계"].sum())
+    assert total["1차후금액"] == pytest.approx(expected["1차후금액"].sum())
     assert total["CC"] == "합계"
