@@ -12,7 +12,6 @@ from src.data.loader import (
     load_coa_amount,
     load_cycle,
     load_mapping,
-    load_pre_allocation,
 )
 from src.data.output import save_results
 from src.core.prepare import (
@@ -29,22 +28,19 @@ class PipelineAborted(Exception):
 def _load_inputs(
     paths: dict,
     notes: list[str],
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Steps 1–2: load files, apply fills, apply dtypes.
 
-    Returns (coa_df, mapping_df, cycle_df, pre_alloc_enriched). The CC list is
-    taken from coa_df["Cost Center"]; there is no separate CC master file. The
-    pre_allocation amounts are summed by (COA, Cost Center) and enriched with the
-    transfer COA (build_enriched) so the by_cc output's 배부전금액 column can be
-    split by (전기COA, 기존COA). The enrichment uses the str-typed mapping_df
-    *before* CategoricalDtype harmonization so the COA join does not hit a
-    category/object dtype mismatch (and a pre_allocation COA absent from the
-    period's amount sheet is not silently masked to NaN).
+    Returns (coa_df, mapping_df, cycle_df). The CC list is taken from
+    coa_df["Cost Center"]; there is no separate CC master file. coa_amount.csv is
+    the single source of truth for both the allocation amounts and the by_cc
+    settled balances (build_enriched in main()), so there is no separate
+    pre_allocation input.
     Raises PipelineAborted if any input file fails validation.
     """
     validation_errors: list[str] = []
 
-    coa_df = mapping_df = cycle_df = pre_alloc_df = None
+    coa_df = mapping_df = cycle_df = None
     try:
         coa_df = load_coa_amount(paths["coa_amount"])
     except ValueError as e:
@@ -57,19 +53,11 @@ def _load_inputs(
         cycle_df = load_cycle(paths["cycle"])
     except ValueError as e:
         validation_errors.append(str(e))
-    try:
-        pre_alloc_df = load_pre_allocation(paths["pre_allocation"])
-    except ValueError as e:
-        validation_errors.append(str(e))
 
     if validation_errors:
         for msg in validation_errors:
             notes.append(msg)
         raise PipelineAborted("입력 파일 검증에 실패했습니다.")
-
-    # Enrich pre_allocation while mapping_df is still str-typed (before the
-    # category cast below) so the COA join in build_enriched stays object/object.
-    pre_alloc_enriched = build_enriched(pre_alloc_df, mapping_df)
 
     # Insert zero-amount rows for cycle CCs missing from the master so they still
     # appear in by_cc and receive their allocations. A cycle CC absent from the
@@ -79,7 +67,7 @@ def _load_inputs(
     dtypes = build_category_dtypes(coa_df, mapping_df)
     coa_df, mapping_df = apply_category_dtypes(coa_df, mapping_df, dtypes=dtypes)
 
-    return coa_df, mapping_df, cycle_df, pre_alloc_enriched
+    return coa_df, mapping_df, cycle_df
 
 
 
@@ -101,16 +89,14 @@ def main() -> None:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
 
-            coa_df, mapping_df, cycle_df, pre_alloc_enriched = _load_inputs(
-                paths, notes
-            )
+            coa_df, mapping_df, cycle_df = _load_inputs(paths, notes)
 
             cc_list = coa_df["Cost Center"].astype(str).unique().tolist()
             enriched = build_enriched(coa_df, mapping_df)
 
             by_coa_df, sender_totals = build_by_coa(enriched, cycle_df)
             by_cc_files = build_by_cc(
-                cc_list, pre_alloc_enriched, cycle_df, sender_totals
+                cc_list, enriched, cycle_df, sender_totals
             )
 
             out_path = save_results(by_coa_df, by_cc_files, paths["output_dir"])

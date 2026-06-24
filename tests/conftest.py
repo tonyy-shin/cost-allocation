@@ -7,6 +7,7 @@ without re-deriving the plumbing.
 from __future__ import annotations
 
 import sys
+import warnings
 from pathlib import Path
 
 import pytest
@@ -21,7 +22,6 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.data.loader import (  # noqa: E402
     apply_category_dtypes, build_category_dtypes,
     load_coa_amount, load_cycle, load_mapping,
-    load_pre_allocation,
 )
 from src.core.prepare import (  # noqa: E402
     build_enriched, fill_missing_cycle_cc,
@@ -37,7 +37,6 @@ def sample_paths() -> dict[str, Path]:
         "coa_amount":      base / "coa_amount.csv",
         "mapping":         base / "mapping.csv",
         "cycle":           base / "cycle.csv",
-        "pre_allocation":  base / "pre_allocation.csv",
         "output_dir":      base / "output",
     }
 
@@ -47,22 +46,17 @@ def loaded_inputs(sample_paths) -> dict:
     """Run loaders + dtype harmonization (main._load_inputs).
 
     The CC list is derived from the COA·CC master's Cost Center column; there is
-    no separate CC master file. pre_allocation is summed by Cost Center.
+    no separate CC master file. coa_amount.csv is the single source of truth for
+    both the allocation amounts and the by_cc settled balances.
 
     Returns
     -------
     dict with keys:
-        coa_df, mapping_df, cycle_df, pre_alloc_enriched, raw_coa_df, cc_list,
-        cat_dtypes
+        coa_df, mapping_df, cycle_df, raw_coa_df, cc_list, cat_dtypes
     """
     coa_df = load_coa_amount(sample_paths["coa_amount"])
     mapping_df = load_mapping(sample_paths["mapping"])
     cycle_df = load_cycle(sample_paths["cycle"])
-    pre_alloc_df = load_pre_allocation(sample_paths["pre_allocation"])
-
-    # Enrich pre_allocation while mapping_df is still str-typed (cf.
-    # main._load_inputs) so the COA join stays object/object.
-    pre_alloc_enriched = build_enriched(pre_alloc_df, mapping_df)
 
     # Add cycle-only CCs before dtype harmonization (cf. main._load_inputs).
     coa_df = fill_missing_cycle_cc(coa_df, cycle_df)
@@ -78,7 +72,6 @@ def loaded_inputs(sample_paths) -> dict:
         "coa_df": coa_df,
         "mapping_df": mapping_df,
         "cycle_df": cycle_df,
-        "pre_alloc_enriched": pre_alloc_enriched,
         "raw_coa_df": raw_coa_df,
         "cc_list": cc_list,
         "cat_dtypes": cat_dtypes,
@@ -89,6 +82,11 @@ def loaded_inputs(sample_paths) -> dict:
 def pipeline_outputs(loaded_inputs) -> dict:
     """Run the full pipeline through both output builders (main.main).
 
+    The sample data is internally consistent with the single-source-of-truth
+    model: each cycle's drained total equals the 원본 amount at its receiver CCs,
+    so build_by_cc emits no per-cycle validation warning. (build_by_coa still
+    flags the unmapped direct cost 7100 on the sender CCs — a separate notice.)
+
     Returns
     -------
     dict with keys:
@@ -97,12 +95,13 @@ def pipeline_outputs(loaded_inputs) -> dict:
     coa_df = loaded_inputs["coa_df"]
     mapping_df = loaded_inputs["mapping_df"]
     cycle_df = loaded_inputs["cycle_df"]
-    pre_alloc_enriched = loaded_inputs["pre_alloc_enriched"]
     cc_list = loaded_inputs["cc_list"]
 
     enriched = build_enriched(coa_df, mapping_df)
-    by_coa_df, sender_totals = build_by_coa(enriched, cycle_df)
-    by_cc_files = build_by_cc(cc_list, pre_alloc_enriched, cycle_df, sender_totals)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        by_coa_df, sender_totals = build_by_coa(enriched, cycle_df)
+        by_cc_files = build_by_cc(cc_list, enriched, cycle_df, sender_totals)
 
     return {
         "enriched": enriched,

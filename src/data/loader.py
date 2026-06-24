@@ -138,33 +138,6 @@ def load_coa_amount(path: Path) -> pd.DataFrame:
     return df
 
 
-def load_pre_allocation(path: Path) -> pd.DataFrame:
-    """Read pre_allocation.csv and sum Amounts by (COA, Cost Center).
-
-    The file shares coa_amount.csv's schema (COA, Cost Center, Amounts), so the
-    same reader is reused. The COA column is preserved (not collapsed) so the
-    by_cc output can carry 전기COA/기존COA columns: the caller enriches this frame
-    via build_enriched to attach the transfer COA before build_by_cc consumes it.
-
-    Parameters
-    ----------
-    path : Path
-        Path to pre_allocation.csv.
-
-    Returns
-    -------
-    pd.DataFrame
-        Columns: COA (str), Cost Center (str), Amounts (float64), summed per
-        (COA, Cost Center).
-    """
-    df = load_coa_amount(path)  # reuses schema validation + numeric parsing
-    return (
-        df.groupby(["COA", "Cost Center"], observed=True)["Amounts"]
-        .sum()
-        .reset_index()
-    )
-
-
 def load_mapping(path: Path) -> pd.DataFrame:
     """Read the transfer COA mapping CSV and return a DataFrame.
 

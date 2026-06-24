@@ -125,52 +125,7 @@ def test_by_coa_no_warning_when_all_sender_coas_mapped():
     assert [str(w.message) for w in caught] == []
 
 
-# by_cc ----------------------------------------------------------------------
-
-
-def test_by_cc_conservation_per_file(pipeline_outputs):
-    # 배부전 total == 배부합계 total for every cycle file.
-    for df in pipeline_outputs["by_cc_files"].values():
-        assert df["배부합계"].sum() == pytest.approx(df["배부전금액"].sum())
-
-
-def test_by_cc_conservation_per_coa_pair(pipeline_outputs):
-    # Money keeps its COA identity, so conservation also holds within each
-    # (전기COA, 기존COA) pair, not just overall.
-    for df in pipeline_outputs["by_cc_files"].values():
-        grouped = df.groupby(["전기COA", "기존COA"])[["배부전금액", "배부합계"]].sum()
-        for pre, total in zip(grouped["배부전금액"], grouped["배부합계"]):
-            assert total == pytest.approx(pre)
-
-
-def test_by_cc_static_money_lands_in_last_column(pipeline_outputs):
-    # CC 2002 is never a sender/receiver but holds 400,000 under (E6100, 6100);
-    # it must surface in the file's last 후금액 column, never in an earlier one.
-    file2 = pipeline_outputs["by_cc_files"][2]
-    row = _row(file2, "2002", "E6100", "6100")
-    assert row["1차후금액"] == pytest.approx(0.0)
-    assert row["2차후금액"] == pytest.approx(400_000.0)
-    assert row["배부합계"] == pytest.approx(400_000.0)
-
-
-def test_by_cc_sender_and_receiver_flow(pipeline_outputs):
-    # Cycle 1: sender 1001 pushes its common cost per COA pair; the flow is now
-    # split by (전기COA, 기존COA). 1001 holds E6100/6100=600,000 + E6200/6200=400,000
-    # of 배부전 and sends 5,000,000 (E6100) + 2,000,000 (E6200).
-    file1 = pipeline_outputs["by_cc_files"][1]
-    assert _row(file1, "1001", "E6100", "6100")["1차후금액"] == pytest.approx(
-        600_000.0 - 5_000_000.0
-    )
-    assert _row(file1, "1001", "E6200", "6200")["1차후금액"] == pytest.approx(
-        400_000.0 - 2_000_000.0
-    )
-    # Receiver 1003 gets 70% of each pair.
-    assert _row(file1, "1003", "E6100", "6100")["1차후금액"] == pytest.approx(
-        300_000.0 + 5_000_000.0 * 0.7
-    )
-    assert _row(file1, "1003", "E6200", "6200")["1차후금액"] == pytest.approx(
-        2_000_000.0 * 0.7
-    )
+# by_cc: structure over the sample pipeline -----------------------------------
 
 
 def test_by_cc_file_columns(pipeline_outputs):
@@ -190,41 +145,91 @@ def test_by_cc_rows_sorted_by_coa_then_cc(pipeline_outputs):
     assert keys == sorted(keys)
 
 
+def test_by_cc_first_sender_balance_is_zero(pipeline_outputs):
+    # 1001 is the only 1차 sender (minimum 차수). Every one of its rows reports
+    # 배부전금액 = 0 in every file, regardless of its 원본 amount.
+    for df in pipeline_outputs["by_cc_files"].values():
+        rows_1001 = df[df["CC"] == "1001"]
+        assert (rows_1001["배부전금액"] == 0.0).all()
+        # A non-1차 CC keeps its 원본 amount as 배부전금액 (2001 holds E6100/6100).
+        assert _row(df, "2001", "E6100", "6100")["배부전금액"] == pytest.approx(
+            3_000_000.0
+        )
+
+
 def test_by_cc_every_cc_has_at_least_one_row(pipeline_outputs, loaded_inputs):
-    # Option B (minimum guarantee): every CC in cc_list appears in at least one
-    # row, even before it has acquired any COA pair of its own.
+    # Every CC in cc_list appears in at least one row.
     file1 = pipeline_outputs["by_cc_files"][1]
     expected = set(loaded_inputs["cc_list"])
     assert set(file1["CC"]) >= expected
 
-    # In cycle 1, receivers 3001/4001 have not been credited yet, so each is held
-    # by a single blank-COA zero row rather than being dropped.
-    for cc in ("3001", "4001"):
-        rows = file1[file1["CC"] == cc]
-        assert len(rows) == 1
-        r = rows.iloc[0]
-        assert r["전기COA"] == ""
-        assert r["기존COA"] == ""
-        assert r["배부전금액"] == pytest.approx(0.0)
-        assert r["배부합계"] == pytest.approx(0.0)
+
+# by_cc: 원본/복사본 model over consistent hand-built data ----------------------
 
 
-# Pass-through worked example ------------------------------------------------
-
-
-def _pre_alloc(rows: list[tuple[str, str, str, float]]) -> pd.DataFrame:
-    """Build a pre_alloc_enriched frame from (전기COA, 기존COA, CC, amount) rows."""
+def _en(rows: list[tuple[str, str, str, float]]) -> pd.DataFrame:
+    """Build an enriched (원본) frame from (전기COA, 기존COA, CC, amount) rows."""
     return pd.DataFrame(
         rows, columns=["전기COA", "기존COA", "Cost Center", "Amounts"]
     )
 
 
-def test_by_cc_pass_through_nets_out():
-    # CC_A sends 1,000 in cycle 1 to CC_B; CC_B sends that 1,000 in cycle 2 to
-    # CC_C. Money passing through CC_B nets to 0 in its 1차후금액. All of it stays
-    # in the (E1, C1) COA pair.
-    cc_list = ["A", "B", "C"]
-    pre_alloc = _pre_alloc([("E1", "C1", "A", 1000.0)])
+def test_by_cc_first_sender_zero_others_keep_원본():
+    # Cycle 1 has two senders (A, X) at the minimum 차수, so both are 1차 senders
+    # and report 배부전금액 = 0. Every other CC reports its 원본 amount.
+    enriched = _en([
+        ("E1", "C1", "A", 1000.0),
+        ("E1", "C1", "X", 500.0),
+        ("E1", "C1", "B", 1000.0),
+        ("E1", "C1", "Y", 500.0),
+    ])
+    cycle_df = pd.DataFrame({
+        "차수": [1, 1],
+        "Sender CC": ["A", "X"],
+        "Receiver CC": ["B", "Y"],
+        "%": [1.0, 1.0],
+    })
+    sender_totals = {1: {("E1", "C1", "A"): 1000.0, ("E1", "C1", "X"): 500.0}}
+
+    file1 = build_by_cc(["A", "X", "B", "Y"], enriched, cycle_df, sender_totals)[1]
+    assert _row(file1, "A", "E1", "C1")["배부전금액"] == pytest.approx(0.0)
+    assert _row(file1, "X", "E1", "C1")["배부전금액"] == pytest.approx(0.0)
+    assert _row(file1, "B", "E1", "C1")["배부전금액"] == pytest.approx(1000.0)
+    assert _row(file1, "Y", "E1", "C1")["배부전금액"] == pytest.approx(500.0)
+
+
+def test_by_cc_sender_rows_zero_receiver_rows_match_원본():
+    # Consistent single-cycle flow: A (1차 sender) sends its full 1,000 to B,
+    # whose 원본 balance is exactly the 1,000 it receives.
+    enriched = _en([("E1", "C1", "A", 1000.0), ("E1", "C1", "B", 1000.0)])
+    cycle_df = pd.DataFrame({
+        "차수": [1], "Sender CC": ["A"], "Receiver CC": ["B"], "%": [1.0],
+    })
+    sender_totals = {1: {("E1", "C1", "A"): 1000.0}}
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        file1 = build_by_cc(["A", "B"], enriched, cycle_df, sender_totals)[1]
+
+    # Consistent data: no validation warning.
+    assert [str(w.message) for w in caught] == []
+    # Sender row drops to 0 in its own cycle; receiver row takes its 원본 value.
+    assert _row(file1, "A", "E1", "C1")["1차후금액"] == pytest.approx(0.0)
+    assert _row(file1, "B", "E1", "C1")["1차후금액"] == pytest.approx(1000.0)
+    # 배부합계 is the final resting balance (the last 후금액 column).
+    assert _row(file1, "A", "E1", "C1")["배부합계"] == pytest.approx(0.0)
+    assert _row(file1, "B", "E1", "C1")["배부합계"] == pytest.approx(1000.0)
+
+
+def test_by_cc_pass_through_chain():
+    # Consistent two-cycle chain A -> B -> C, all in (E1, C1). A is the 1차 sender.
+    # B holds the money after cycle 1 (1차후금액=1000) then forwards it in cycle 2
+    # (2차후금액=0); C receives it in cycle 2 (2차후금액=1000).
+    enriched = _en([
+        ("E1", "C1", "A", 1000.0),
+        ("E1", "C1", "B", 1000.0),
+        ("E1", "C1", "C", 1000.0),
+    ])
     cycle_df = pd.DataFrame({
         "차수": [1, 2],
         "Sender CC": ["A", "B"],
@@ -233,55 +238,52 @@ def test_by_cc_pass_through_nets_out():
     })
     sender_totals = {1: {("E1", "C1", "A"): 1000.0}, 2: {("E1", "C1", "B"): 1000.0}}
 
-    files = build_by_cc(cc_list, pre_alloc, cycle_df, sender_totals)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        files = build_by_cc(["A", "B", "C"], enriched, cycle_df, sender_totals)
 
-    file1, file2 = files[1], files[2]
-    # file 1: B holds the passed-through 1,000.
-    assert _row(file1, "A", "E1", "C1")["배부합계"] == pytest.approx(0.0)
-    assert _row(file1, "B", "E1", "C1")["1차후금액"] == pytest.approx(1000.0)
-    # C has not been credited yet -> option B blank-COA zero row.
-    assert _row(file1, "C")["배부합계"] == pytest.approx(0.0)
-    # file 2: B has forwarded it; the 1,000 now rests at C in 2차후금액.
-    assert _row(file2, "B", "E1", "C1")["1차후금액"] == pytest.approx(0.0)
+    assert [str(w.message) for w in caught] == []
+    file2 = files[2]
+    assert _row(file2, "A", "E1", "C1")["배부합계"] == pytest.approx(0.0)
+    assert _row(file2, "B", "E1", "C1")["1차후금액"] == pytest.approx(1000.0)
     assert _row(file2, "B", "E1", "C1")["2차후금액"] == pytest.approx(0.0)
+    assert _row(file2, "B", "E1", "C1")["배부합계"] == pytest.approx(0.0)
+    assert _row(file2, "C", "E1", "C1")["1차후금액"] == pytest.approx(0.0)
     assert _row(file2, "C", "E1", "C1")["2차후금액"] == pytest.approx(1000.0)
-    # Conservation holds in both files.
-    for f in (file1, file2):
-        assert f["배부합계"].sum() == pytest.approx(f["배부전금액"].sum())
+    assert _row(file2, "C", "E1", "C1")["배부합계"] == pytest.approx(1000.0)
 
 
-def test_by_cc_negative_balance_subtracted_unconditionally():
-    # A sender whose 배부전 (200) is below its sender_total (500) goes negative;
-    # no clamping, no warning.
-    cc_list = ["S", "R"]
-    pre_alloc = _pre_alloc([("E1", "C1", "S", 200.0)])
+def test_by_cc_validation_warns_on_mismatch():
+    # A (1차 sender) drains 1,000 but its receiver B holds only 500 in 원본, so the
+    # per-cycle validation fails and warns (it does not raise).
+    enriched = _en([("E1", "C1", "A", 1000.0), ("E1", "C1", "B", 500.0)])
     cycle_df = pd.DataFrame({
-        "차수": [1],
-        "Sender CC": ["S"],
-        "Receiver CC": ["R"],
-        "%": [1.0],
+        "차수": [1], "Sender CC": ["A"], "Receiver CC": ["B"], "%": [1.0],
     })
-    sender_totals = {1: {("E1", "C1", "S"): 500.0}}
+    sender_totals = {1: {("E1", "C1", "A"): 1000.0}}
 
-    files = build_by_cc(cc_list, pre_alloc, cycle_df, sender_totals)
-    assert _row(files[1], "S", "E1", "C1")["1차후금액"] == pytest.approx(-300.0)
-    assert _row(files[1], "R", "E1", "C1")["1차후금액"] == pytest.approx(500.0)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        build_by_cc(["A", "B"], enriched, cycle_df, sender_totals)
+
+    messages = [str(w.message) for w in caught]
+    assert len(messages) == 1
+    msg = messages[0]
+    assert msg.startswith("1차 배부 검증 실패")
+    assert "1,000" in msg   # amount drained from 복사본
+    assert "500" in msg     # 원본 amount at the receiver CC
 
 
 def test_by_cc_option_b_empty_cc_gets_blank_coa_row():
-    # CC_Z never holds 배부전 and never receives anything. Option B guarantees it
-    # one all-zero, blank-COA row so it is not dropped from the output.
-    cc_list = ["S", "R", "Z"]
-    pre_alloc = _pre_alloc([("E1", "C1", "S", 1000.0)])
+    # CC_Z is absent from 원본 (never holds anything, never receives). Option B
+    # guarantees it one all-zero, blank-COA row so it is not dropped.
+    enriched = _en([("E1", "C1", "A", 1000.0), ("E1", "C1", "B", 1000.0)])
     cycle_df = pd.DataFrame({
-        "차수": [1],
-        "Sender CC": ["S"],
-        "Receiver CC": ["R"],
-        "%": [1.0],
+        "차수": [1], "Sender CC": ["A"], "Receiver CC": ["B"], "%": [1.0],
     })
-    sender_totals = {1: {("E1", "C1", "S"): 1000.0}}
+    sender_totals = {1: {("E1", "C1", "A"): 1000.0}}
 
-    file1 = build_by_cc(cc_list, pre_alloc, cycle_df, sender_totals)[1]
+    file1 = build_by_cc(["A", "B", "Z"], enriched, cycle_df, sender_totals)[1]
 
     z_rows = file1[file1["CC"] == "Z"]
     assert len(z_rows) == 1
@@ -291,5 +293,3 @@ def test_by_cc_option_b_empty_cc_gets_blank_coa_row():
     assert z["배부전금액"] == pytest.approx(0.0)
     assert z["1차후금액"] == pytest.approx(0.0)
     assert z["배부합계"] == pytest.approx(0.0)
-    # The guarantee does not perturb conservation.
-    assert file1["배부합계"].sum() == pytest.approx(file1["배부전금액"].sum())

@@ -163,42 +163,44 @@ def build_by_coa(
 
 def build_by_cc(
     cc_list: list[str],
-    pre_alloc_enriched: pd.DataFrame,
+    enriched: pd.DataFrame,
     cycle_df: pd.DataFrame,
     sender_totals: dict[int, dict[tuple[str, str, str], float]],
 ) -> dict[int, pd.DataFrame]:
-    """Build one settled by_cc snapshot per cycle, keyed by (전기COA, 기존COA, CC).
+    """Build one per-cycle by_cc balance snapshot, keyed by (전기COA, 기존COA, CC).
 
-    Money keeps its COA identity through the simulation: each balance is tracked
-    as labeled buckets under a (전기COA, 기존COA, CC) key (label 0 = 배부전금액;
-    label k = money that arrived in cycle k). Per cycle k, in ascending order:
+    coa_amount.csv (via ``enriched``) is the single source of truth for every
+    CC's settled balance. Two reference frames drive the simulation:
 
-    - Receivers gain ``sender_total * ratio`` from each of their senders, credited
-      under the *sender's* COA pair and labeled with cycle k.
-    - Senders are drained by their ``sender_totals[k]`` amount within the *same*
-      COA pair, consuming received buckets first (oldest cycle first) and the
-      original (label 0) bucket last. The amount comes from coa_amount and is
-      independent of the pre_allocation balance, so label 0 may go negative —
-      subtracted unconditionally, no warning.
+    - 원본 (original): the per-(전기COA, 기존COA, CC) ``enriched`` amounts, never
+      modified. It defines both each CC's settled balance and the 배부전금액 base.
+    - 복사본 (copy): a copy of 원본 with every CC zeroed except the *1차 sender*
+      CCs (the senders of the minimum 차수), which keep their 원본 amount. Each
+      cycle drains each sender's ``sender_totals[k]`` amount from 복사본; the per-
+      cycle total drained is validated against the 원본 amount sitting at that
+      cycle's receiver CCs (a warning, not an error, on mismatch).
 
-    In file n, ``k차후금액`` (k < n) is bucket k of the state after cycle n, and
-    ``n차후금액`` folds in the still-held original (label 0) balance — so static
-    money (never sent/received) lands in the last column. ``배부합계`` is the
-    row-wise sum of the 후금액 columns and equals that key's final balance, giving
-    ``배부전 total == 배부합계 total`` both overall and per (전기COA, 기존COA) pair.
+    The displayed balance state starts from 복사본's layout. Per cycle k, in
+    ascending order, every row whose CC sends in cycle k drops to 0 and every row
+    whose CC receives in cycle k is (re)filled from its 원본 value. ``k차후금액``
+    is the snapshot of this state after cycle k, so in any file a sender's row
+    reads 0 in its own cycle and a receiver's row reads its 원본 amount.
 
-    Every CC in ``cc_list`` is guaranteed at least one row: a CC with no COA pair
-    of its own (no 배부전 and never received) gets a single all-zero row with
-    전기COA="" and 기존COA="" so it is never dropped from the output.
+    ``배부전금액`` is 0 for 1차 sender CCs and the 원본 amount for every other CC.
+    ``배부합계`` is the final resting balance — the last 후금액 column of the file.
+
+    Every CC in ``cc_list`` is guaranteed at least one row: a CC absent from
+    ``enriched`` gets a single all-zero row with 전기COA="" and 기존COA="" so it is
+    never dropped from the output.
 
     Parameters
     ----------
-    cc_list            : All Cost Center codes from coa_amount.csv.
-    pre_alloc_enriched : build_enriched applied to load_pre_allocation. Columns:
-                         전기COA, 기존COA, Cost Center, Amounts.
-    cycle_df           : load_cycle result.
-    sender_totals      : build_by_coa's second return value, keyed by
-                         (전기COA, 기존COA, Sender CC).
+    cc_list       : All Cost Center codes from coa_amount.csv.
+    enriched      : build_enriched result (the 원본). Columns:
+                    전기COA, 기존COA, Cost Center, Amounts.
+    cycle_df      : load_cycle result.
+    sender_totals : build_by_coa's second return value, keyed by
+                    (전기COA, 기존COA, Sender CC).
 
     Returns
     -------
@@ -209,85 +211,93 @@ def build_by_cc(
     cycles = sorted(int(c) for c in cycle_df["차수"].unique())
     ccs = [str(cc) for cc in cc_list]
 
-    # Original 배부전금액 per (전기COA, 기존COA, CC), kept separate so the
-    # 배부전금액 column reports the pre-drain amount even after label 0 is drained.
-    pre: dict[tuple[str, str, str], float] = {}
+    # 원본: settled amount per (전기COA, 기존COA, CC). Never modified. Code columns
+    # are str-normalized with NaN -> "" so cycle-only CCs (COA=NaN from
+    # fill_missing_cycle_cc) sort cleanly and surface as a blank-COA row.
+    def _codes(col: str) -> pd.Series:
+        s = enriched[col]
+        return s.astype(object).where(s.notna(), "").astype(str)
+
+    원본: dict[tuple[str, str, str], float] = {}
     for e, b, cc, amt in zip(
-        pre_alloc_enriched["전기COA"].astype(str),
-        pre_alloc_enriched["기존COA"].astype(str),
-        pre_alloc_enriched["Cost Center"].astype(str),
-        pre_alloc_enriched["Amounts"],
+        _codes("전기COA"),
+        _codes("기존COA"),
+        _codes("Cost Center"),
+        enriched["Amounts"],
     ):
         key = (e, b, cc)
-        pre[key] = pre.get(key, 0.0) + float(amt)
+        원본[key] = 원본.get(key, 0.0) + float(amt)
 
-    bal: dict[tuple[str, str, str], dict[int, float]] = {
-        key: {0: amt} for key, amt in pre.items()
+    # 1차 sender CCs: the senders of the minimum 차수 in cycle_df.
+    first_senders: set[str] = set()
+    if cycles:
+        first_cycle = cycles[0]
+        first_senders = set(
+            cycle_df.loc[cycle_df["차수"] == first_cycle, "Sender CC"].astype(str)
+        )
+
+    # 복사본: copy of 원본 with every CC zeroed except the 1차 senders.
+    복사본 = {
+        key: (amt if key[2] in first_senders else 0.0)
+        for key, amt in 원본.items()
     }
-    snapshots: dict[int, dict[tuple[str, str, str], dict[int, float]]] = {}
+
+    # Displayed balance state, snapshotted after each cycle to feed 후금액 columns.
+    state = dict(복사본)
+    snapshots: dict[int, dict[tuple[str, str, str], float]] = {}
 
     for k in cycles:
         rows = cycle_df[cycle_df["차수"] == k]
-        senders = sender_totals.get(k, {})
+        senders_k = set(rows["Sender CC"].astype(str))
+        receivers_k = set(rows["Receiver CC"].astype(str))
 
-        # Receivers: credit inflow under the sender's COA pair, labeled cycle k.
-        for sender, receiver, pct in zip(
-            rows["Sender CC"].astype(str),
-            rows["Receiver CC"].astype(str),
-            rows["%"],
-        ):
-            for (e, b, s), total in senders.items():
-                if s != sender:
-                    continue
-                key = (e, b, receiver)
-                bucket = bal.setdefault(key, {})
-                bucket[k] = bucket.get(k, 0.0) + float(total) * float(pct)
+        # Deduct each sender's allocated amount from 복사본 and tally the total.
+        deducted = 0.0
+        for (e, b, s), total in sender_totals.get(k, {}).items():
+            복사본[(e, b, s)] = 복사본.get((e, b, s), 0.0) - float(total)
+            deducted += float(total)
 
-        # Senders: drain received buckets first, then the original bucket, within
-        # the same COA pair.
-        for (e, b, s), total in senders.items():
-            if s not in {str(x) for x in rows["Sender CC"]}:
-                continue
-            key = (e, b, s)
-            bucket = bal.setdefault(key, {})
-            remaining = float(total)
-            for label in sorted(lbl for lbl in bucket if lbl != 0):
-                if remaining <= 0:
-                    break
-                take = min(bucket[label], remaining)
-                bucket[label] -= take
-                remaining -= take
-            bucket[0] = bucket.get(0, 0.0) - remaining
+        # Validate: the amount drained this cycle should equal the 원본 amount
+        # sitting at this cycle's receiver CCs. Warn (do not raise) on mismatch.
+        expected = sum(v for (e, b, cc), v in 원본.items() if cc in receivers_k)
+        if abs(deducted - expected) > 1e-6:
+            warnings.warn(
+                f"{k}차 배부 검증 실패: 복사본에서 차감된 금액({deducted:,.0f})이 "
+                f"원본 수신 CC 합계({expected:,.0f})와 일치하지 않습니다."
+            )
 
-        snapshots[k] = {key: dict(labels) for key, labels in bal.items()}
+        # Display: sender rows drop to 0, receiver rows take their 원본 value.
+        for key in state:
+            if key[2] in senders_k:
+                state[key] = 0.0
+        for key, amt in 원본.items():
+            if key[2] in receivers_k:
+                state[key] = amt
+        snapshots[k] = dict(state)
 
     files: dict[int, pd.DataFrame] = {}
     for n in cycles:
-        snap = snapshots[n]
         after_cols = [_after_col(k) for k in cycles if k <= n]
         records = []
         covered_ccs: set[str] = set()
-        for (e, b, cc) in sorted(snap):
-            labels = snap[(e, b, cc)]
+        for key in sorted(원본):
+            e, b, cc = key
             covered_ccs.add(cc)
             row: dict[str, object] = {
                 "전기COA": e,
                 "기존COA": b,
                 "CC": cc,
-                "배부전금액": pre.get((e, b, cc), 0.0),
+                "배부전금액": 0.0 if cc in first_senders else 원본[key],
             }
             for k in cycles:
                 if k > n:
                     continue
-                val = labels.get(k, 0.0)
-                if k == n:
-                    val += labels.get(0, 0.0)  # fold original/static into last col
-                row[_after_col(k)] = val
-            row["배부합계"] = sum(row[c] for c in after_cols)
+                row[_after_col(k)] = snapshots[k].get(key, 0.0)
+            row["배부합계"] = row[_after_col(n)]
             records.append(row)
 
-        # Option B: guarantee every CC at least one row. A CC with no COA pair of
-        # its own gets a single all-zero, blank-COA row.
+        # Option B: guarantee every CC at least one row. A CC absent from 원본
+        # gets a single all-zero, blank-COA row.
         for cc in ccs:
             if cc in covered_ccs:
                 continue
